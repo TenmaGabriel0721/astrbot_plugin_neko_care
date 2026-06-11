@@ -1,0 +1,76 @@
+import random
+from datetime import datetime
+from typing import List, Dict
+
+from .storage import JsonStore
+
+
+def today_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+class EconomyService:
+    def __init__(self, store: JsonStore, coin_name: str = "宝石", work_min: int = 50, work_max: int = 120):
+        self.store = store
+        self.coin_name = coin_name
+        self.work_min = work_min
+        self.work_max = work_max
+
+    def get_balance(self, uid: str) -> int:
+        return int(self.store.get("wallet", str(uid), default=0))
+
+    def set_balance(self, uid: str, amount: int) -> int:
+        amount = max(0, int(amount))
+        self.store.set("wallet", str(uid), value=amount)
+        return amount
+
+    def add_balance(self, uid: str, delta: int) -> int:
+        return self.set_balance(uid, self.get_balance(uid) + int(delta))
+
+    def transfer(self, from_uid: str, to_uid: str, amount: int):
+        amount = int(amount)
+        if amount <= 0:
+            return False, "转账金额要大于 0 喔～"
+        if from_uid == to_uid:
+            return False, "不能给自己转账啦。"
+        if self.get_balance(from_uid) < amount:
+            return False, f"余额不够喔，转不了 {amount} {self.coin_name}。"
+
+        def op(data):
+            wallet = data.setdefault("wallet", {})
+            wallet[from_uid] = max(0, int(wallet.get(from_uid, 0)) - amount)
+            wallet[to_uid] = max(0, int(wallet.get(to_uid, 0)) + amount)
+
+        self.store.update(op)
+        return True, f"转账成功～送出了 {amount} {self.coin_name}。"
+
+    def daily_work(self, uid: str):
+        today = today_str()
+        data = self.store.get("sign", uid, default={}) or {}
+        if data.get("last_work_date") == today:
+            return False, "今天已经打过工啦，休息一下吧喵～"
+
+        reward = random.randint(self.work_min, self.work_max)
+        events = [
+            "你在猫咖帮忙端了一天甜点。",
+            "你帮老板整理仓库，累得耳朵都耷拉下来了。",
+            "你接了一个临时外包，顺利完成。",
+            "你在便利店值班，遇到了一群买关东煮的猫娘。",
+            "你帮别人修好了坏掉的自动贩卖机。",
+        ]
+
+        def op(root):
+            wallet = root.setdefault("wallet", {})
+            sign = root.setdefault("sign", {})
+            wallet[uid] = int(wallet.get(uid, 0)) + reward
+            user = sign.setdefault(uid, {})
+            user["last_work_date"] = today
+
+        self.store.update(op)
+        return True, f"{random.choice(events)}\n获得 {reward} {self.coin_name}！\n当前余额：{self.get_balance(uid)} {self.coin_name}"
+
+    def wallet_rank(self, top_n: int = 10) -> List[Dict]:
+        wallet = self.store.get("wallet", default={}) or {}
+        rows = [{"uid": uid, "balance": int(balance)} for uid, balance in wallet.items()]
+        rows.sort(key=lambda x: x["balance"], reverse=True)
+        return rows[:top_n]
