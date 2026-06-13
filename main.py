@@ -68,7 +68,7 @@ def neko_command(command_name: str, alias: set | None = None, **kwargs):
 
     return decorator
 
-@register("astrbot_plugin_neko_care", "若梦和我一起", "猫娘羁绊养成、签到打工", "1.3.0")
+@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.3.0")
 class SapphireEconomyPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
