@@ -18,22 +18,22 @@
   "sign_min_reward": {
     "type": "int",
     "description": "签到最小奖励",
-    "default": 80
+    "default": 65
   },
   "sign_max_reward": {
     "type": "int",
     "description": "签到最大奖励",
-    "default": 150
+    "default": 125
   },
   "work_min_reward": {
     "type": "int",
     "description": "打工最小奖励",
-    "default": 50
+    "default": 35
   },
   "work_max_reward": {
     "type": "int",
     "description": "打工最大奖励",
-    "default": 120
+    "default": 85
   },
   "catgirl_wish_probability": {
     "type": "float",
@@ -48,7 +48,7 @@
   "appearance_change_price": {
     "type": "int",
     "description": "更换形象价格",
-    "default": 1200
+    "default": 900
   },
   "extra_admin_ids": {
     "type": "list",

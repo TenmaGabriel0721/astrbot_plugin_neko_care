@@ -68,7 +68,7 @@ def neko_command(command_name: str, alias: set | None = None, **kwargs):
 
     return decorator
 
-@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.3.0")
+@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.4.6")
 class SapphireEconomyPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -80,15 +80,15 @@ class SapphireEconomyPlugin(Star):
         global KEYWORD_TRIGGER_ENABLED
         KEYWORD_TRIGGER_ENABLED = self.keyword_trigger_enabled
 
-        self.sign_min = max(0, int(self.config.get("sign_min_reward", 80)))
-        self.sign_max = max(self.sign_min, int(self.config.get("sign_max_reward", 150)))
-        self.work_min = max(0, int(self.config.get("work_min_reward", 50)))
-        self.work_max = max(self.work_min, int(self.config.get("work_max_reward", 120)))
+        self.sign_min = max(0, int(self.config.get("sign_min_reward", 65)))
+        self.sign_max = max(self.sign_min, int(self.config.get("sign_max_reward", 125)))
+        self.work_min = max(0, int(self.config.get("work_min_reward", 35)))
+        self.work_max = max(self.work_min, int(self.config.get("work_max_reward", 85)))
 
         self.extra_admin_ids = set(str(x) for x in self.config.get("extra_admin_ids", []))
         self.wish_probability = min(1.0, max(0.0, float(self.config.get("catgirl_wish_probability", 0.8))))
         self.wish_pity = max(1, int(self.config.get("catgirl_wish_pity", 3)))
-        self.appearance_change_price = max(0, int(self.config.get("appearance_change_price", 1200)))
+        self.appearance_change_price = max(0, int(self.config.get("appearance_change_price", 900)))
 
         base_dir = Path(__file__).resolve().parent
         self.base_dir = base_dir
@@ -309,7 +309,7 @@ class SapphireEconomyPlugin(Star):
         self.catgirl.finalize_adoption(gid, uid, choice="first")
         self._pending_adoptions.pop(key, None)
 
-    @neko_command("猫猫帮助", alias={"猫娘帮助"})
+    @neko_command("猫猫帮助", alias={"猫娘帮助"}, desc="查看猫娘养成插件的图片帮助菜单和所有指令说明")
     async def catgirl_help(self, event: AstrMessageEvent):
         coin_name = self._coin_name()
         wish_probability, wish_pity, appearance_price = self._wish_rules()
@@ -317,35 +317,88 @@ class SapphireEconomyPlugin(Star):
         feed_limit = care.get("feed_satiety_limit", 85)
         satiety_minutes = int(float(care.get("satiety_decay_minutes", 2880)))
         runaway_hours = float(care.get("runaway_after_zero_hours", 24))
+        help_sections = [
+            ("基础经济", [
+                ("签到 / 猫猫签到", "每日领取宝石"),
+                ("每日打工", "主人每日收入"),
+                ("查看猫猫钱包", "查看余额"),
+                ("钱包转账 数量 @用户", "转出宝石"),
+            ]),
+            ("收养与状态", [
+                ("请赐我一只可爱猫娘吧", "每日许愿"),
+                ("带她回家 / 确认收养", "确认候选"),
+                ("换一只猫娘 / 换个形象", "切换候选"),
+                ("成长档案 / 猫猫状态", "状态档案"),
+            ]),
+            ("照顾与互动", [
+                ("喂猫 / 喂猫猫", "喂食恢复"),
+                ("撸猫 / 逗猫 / 摸猫", "内置互动"),
+                ("rua猫 / 陪猫娘", "内置互动"),
+                ("猫娘互动 动作名", "自定义互动"),
+            ]),
+            ("猫娘打工", [
+                ("猫娘打工", "领取或随机打工"),
+                ("猫娘打工 地点名", "指定地点"),
+                ("猫娘打工 列表", "查看全量地点"),
+                ("猫娘打工 解锁 地点名", "解锁地点"),
+            ]),
+            ("商店与护理", [
+                ("猫娘商店 [分类]", "查看道具"),
+                ("购买 道具名 [数量]", "购买道具"),
+                ("背包 / 猫娘背包", "查看道具"),
+                ("使用 道具名", "使用道具"),
+                ("猫娘护理 [服务名]", "购买护理"),
+            ]),
+            ("档案与排行", [
+                ("猫娘改名 名字", "消耗改名卡"),
+                ("更换猫娘形象", "上传新图片"),
+                ("羁绊排行榜", "本群排行"),
+                ("钱包排行榜", "余额排行"),
+                ("迁移猫娘到本群", "登记群排行"),
+            ]),
+            ("管理员", [
+                ("管理员给 数量 @用户", "增加宝石"),
+                ("管理员扣 数量 @用户", "扣除宝石"),
+                ("管理员查看 @用户", "查看余额"),
+            ]),
+        ]
         text = (
             "猫猫小助手来啦 ฅ^•ﻌ•^ฅ\n\n"
-            "常用指令：\n"
-            "1. 签到 / 猫猫签到\n"
-            "2. 查看猫猫钱包 / 查看猫娘钱包\n"
-            "3. 请赐我一只可爱猫娘吧\n"
-            "4. 成长档案 / 猫娘状态 / 猫猫状态\n"
-            "5. 喂猫 / 喂猫娘 / 喂猫猫\n"
-            "6. 猫娘打工 / 猫猫打工 / 打工（可加地点名；猫娘打工 列表）\n"
-            "7. 撸猫 / 逗猫 / 摸猫 / rua猫 / 陪猫娘\n"
-            "   自定义互动：猫娘互动 动作名\n"
-            "8. 猫娘改名 名字\n"
-            f"9. 更换猫娘形象 + 图片（{appearance_price} {coin_name}）\n"
-            "10. 羁绊排行榜 / 猫娘排行榜\n"
+            "指令说明：\n"
+            + "\n".join(
+                f"{title}\n" + "\n".join(f"- {command}：{desc}" for command, desc in rows)
+                for title, rows in help_sections
+            ) + "\n\n"
             "许愿说明：\n"
             f"每天许愿有 {int(wish_probability * 100)}% 概率遇见猫娘，{wish_pity} 次内必定成功喔～\n\n"
             "喂养说明：\n"
             f"状态按分钟结算，饱食度低于 {round(feed_limit)} 时可以喂猫。\n"
             f"饱食度约 {round(satiety_minutes / 60)} 小时从 100 降到 0，归零超过 {round(runaway_hours)} 小时会离家出走。"
         )
-        yield event.plain_result(text)
+        card = self.catgirl.draw_section_card(
+            "猫猫帮助",
+            subtitle="指令说明与用法",
+            sections=help_sections,
+            metrics=[
+                ("许愿概率", f"{int(wish_probability * 100)}%"),
+                ("许愿保底", f"{wish_pity} 次"),
+                ("喂食阈值", f"{round(feed_limit)}"),
+                ("饱食清零", f"约 {round(satiety_minutes / 60)} 小时"),
+                ("离家倒计时", f"{round(runaway_hours)} 小时"),
+                ("形象价格", f"{appearance_price} {coin_name}"),
+            ],
+            footer="状态相关输出、帮助菜单、商店、背包、护理和打工列表均使用图片展示。",
+            tag="help",
+        )
+        yield self._mixed_result(event, text, card)
 
-    @neko_command("查看猫猫钱包", alias={"查看猫娘钱包"})
+    @neko_command("查看猫猫钱包", alias={"查看猫娘钱包"}, desc="查看自己的宝石余额")
     async def my_wallet(self, event: AstrMessageEvent):
         uid = self._uid(event)
         bal = self.economy.get_balance(uid)
         yield event.plain_result(f"你的小钱包里有 {bal} {self._coin_name()} 喔～")
 
-    @neko_command("钱包转账")
+    @neko_command("钱包转账", desc="钱包转账 数量 @用户：把宝石转给指定用户")
     async def wallet_transfer(self, event: AstrMessageEvent, amount: int):
         uid = self._uid(event)
         target = self._extract_at_uid(event)
@@ -355,13 +408,13 @@ class SapphireEconomyPlugin(Star):
         ok, msg = self.economy.transfer(uid, target, amount)
         yield event.plain_result(msg)
 
-    @neko_command("每日打工")
+    @neko_command("每日打工", desc="主人每日打工获得宝石，每天一次")
     async def daily_work(self, event: AstrMessageEvent):
         uid = self._uid(event)
         ok, msg = self.economy.daily_work(uid)
         yield event.plain_result(msg)
 
-    @neko_command("签到", alias={"猫猫签到"})
+    @neko_command("签到", alias={"猫猫签到"}, desc="每日签到领取宝石和签到卡片")
     async def sign_entry(self, event: AstrMessageEvent):
         uid = self._uid(event)
         name = self._name(event)
@@ -388,7 +441,7 @@ class SapphireEconomyPlugin(Star):
         coin_name = self._coin_name()
         yield event.plain_result(f"签到成功喵～ ฅ^•ﻌ•^ฅ\n今天捡到了 {data['inc']} {coin_name}！\n小钱包里现在有 {data['balance']} {coin_name} 啦～\n\n今日一言：\n{quote_line}")
 
-    @neko_command("请赐我一只可爱猫娘吧")
+    @neko_command("请赐我一只可爱猫娘吧", desc="每日许愿收养猫娘，失败会累计保底")
     async def wish_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
@@ -412,7 +465,7 @@ class SapphireEconomyPlugin(Star):
         img = self.catgirl.draw_wish_card(first)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("带她回家", alias={"确认收养", "换一只猫娘", "换个形象"})
+    @neko_command("带她回家", alias={"确认收养", "换一只猫娘", "换个形象"}, desc="确认收养当前猫娘，或切换另一个候选猫娘")
     async def confirm_catgirl_adoption(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
@@ -426,32 +479,62 @@ class SapphireEconomyPlugin(Star):
         self._pending_adoptions.pop(uid, None)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("成长档案", alias={"猫娘状态", "猫猫状态", "猫猫档案"})
+    @neko_command("成长档案", alias={"猫娘状态", "猫猫状态", "猫猫档案"}, desc="查看猫娘状态、成长、亲密等级、风险和当前趋势")
     async def catgirl_status(self, event: AstrMessageEvent):
         uid = self._uid(event)
         ok, msg, img_path = self.catgirl.status(uid)
         yield self._mixed_result(event, msg, img_path)
 
-    @neko_command("喂猫", alias={"喂猫娘", "喂猫猫"})
+    @neko_command("喂猫", alias={"喂猫娘", "喂猫猫"}, desc="给猫娘喂食，消耗宝石并提升饱食、心情、精力、成长和亲密")
     async def feed_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
         ok, msg, img_path = self.catgirl.feed(uid)
         yield self._mixed_result(event, msg, img_path)
 
-    @neko_command("猫娘打工", alias={"猫猫打工", "打工"})
+    @neko_command("猫娘打工", alias={"猫猫打工", "打工"}, desc="猫娘打工 [地点名|列表|解锁 地点名]：派猫娘打工、查看地点或解锁地点")
     async def catgirl_work(self, event: AstrMessageEvent, job_name: GreedyStr):
         uid = self._uid(event)
         ok, msg, img = self.catgirl.work(uid, str(job_name or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("撸猫", alias={"逗猫", "摸猫", "rua猫", "陪猫娘", "陪猫猫", "贴贴猫娘", "贴贴猫猫"})
+    @neko_command("猫娘商店", alias={"猫猫商店"}, desc="猫娘商店 [分类]：查看可购买道具和价格")
+    async def catgirl_shop(self, event: AstrMessageEvent, category: GreedyStr):
+        uid = self._uid(event)
+        ok, msg, img = self.catgirl.shop(uid, str(category or "").strip())
+        yield self._mixed_result(event, msg, img)
+
+    @neko_command("背包", alias={"猫娘背包", "猫猫背包"}, desc="查看背包道具数量和待生效加成")
+    async def catgirl_bag(self, event: AstrMessageEvent):
+        uid = self._uid(event)
+        ok, msg, img = self.catgirl.bag(uid)
+        yield self._mixed_result(event, msg, img)
+
+    @neko_command("购买", alias={"购买道具", "猫娘购买"}, desc="购买 道具名 [数量]：消耗宝石购买商店道具")
+    async def catgirl_buy(self, event: AstrMessageEvent, item_name: GreedyStr):
+        uid = self._uid(event)
+        ok, msg, img = self.catgirl.buy_item(uid, str(item_name or "").strip())
+        yield self._mixed_result(event, msg, img)
+
+    @neko_command("使用", alias={"使用道具", "猫娘使用"}, desc="使用 道具名：使用背包道具，功能卡会在对应操作自动消耗")
+    async def catgirl_use_item(self, event: AstrMessageEvent, item_name: GreedyStr):
+        uid = self._uid(event)
+        ok, msg, img = self.catgirl.use_item(uid, str(item_name or "").strip())
+        yield self._mixed_result(event, msg, img)
+
+    @neko_command("猫娘护理", alias={"猫猫护理", "护理猫娘", "猫娘看病"}, desc="猫娘护理 [服务名]：查看或购买护理服务")
+    async def catgirl_care_service(self, event: AstrMessageEvent, service_name: GreedyStr):
+        uid = self._uid(event)
+        ok, msg, img = self.catgirl.care_service(uid, str(service_name or "").strip())
+        yield self._mixed_result(event, msg, img)
+
+    @neko_command("撸猫", alias={"逗猫", "摸猫", "rua猫", "陪猫娘", "陪猫猫", "贴贴猫娘", "贴贴猫猫"}, desc="进行内置互动，受冷却、精力、心情和每日收益递减影响")
     async def interact_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
         action = (event.message_str or "").strip()
         ok, msg, img = self.catgirl.interact(uid, action)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘互动", alias={"猫猫互动"})
+    @neko_command("猫娘互动", alias={"猫猫互动"}, desc="猫娘互动 动作名：触发 Pages 中配置的自定义互动")
     async def interact_catgirl_custom(self, event: AstrMessageEvent, action: GreedyStr):
         uid = self._uid(event)
         action = str(action or "").strip()
@@ -461,13 +544,13 @@ class SapphireEconomyPlugin(Star):
         ok, msg, img = self.catgirl.interact(uid, action)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘改名")
+    @neko_command("猫娘改名", desc="猫娘改名 新名字：消耗改名卡修改猫娘名字")
     async def rename_catgirl(self, event: AstrMessageEvent, name: GreedyStr):
         uid = self._uid(event)
         ok, msg, img = self.catgirl.rename(uid, name)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("更换猫娘形象", alias={"更换猫猫形象"})
+    @neko_command("更换猫娘形象", alias={"更换猫猫形象"}, desc="更换猫娘形象：上传新图片，优先消耗形象更改卡")
     async def change_catgirl_image(self, event: AstrMessageEvent):
 
         uid = self._uid(event)
@@ -481,7 +564,7 @@ class SapphireEconomyPlugin(Star):
             token = f"{time.time()}:{random.random()}"
             self._pending_image_changes[uid] = {"token": token, "expire": time.time() + 120}
             _, _, appearance_price = self._wish_rules()
-            yield event.plain_result(f"请在 2 分钟内发送新的猫娘图片～\n成功更换后将扣除 {appearance_price} {self._coin_name()}。")
+            yield event.plain_result(f"请在 2 分钟内发送新的猫娘图片～\n成功更换时会优先消耗 1 张形象更改卡；没有卡时扣除 {appearance_price} {self._coin_name()}。")
             return
 
         ok, msg, img = await self.catgirl.change_image(uid, image_src)
@@ -508,7 +591,7 @@ class SapphireEconomyPlugin(Star):
         yield self._mixed_result(event, msg, img)
 
 
-    @neko_command("羁绊排行榜", alias={"猫娘排行榜", "猫猫排行榜"})
+    @neko_command("羁绊排行榜", alias={"猫娘排行榜", "猫猫排行榜"}, desc="查看当前群猫娘羁绊排行榜")
     async def catgirl_rank(self, event: AstrMessageEvent):
         gid = self._gid(event)
         img = self.catgirl.draw_rank(gid)
@@ -517,14 +600,14 @@ class SapphireEconomyPlugin(Star):
             return
         yield event.image_result(str(img))
 
-    @neko_command("迁移猫娘到本群", alias={"猫娘迁移"})
+    @neko_command("迁移猫娘到本群", alias={"猫娘迁移"}, desc="把自己的猫娘登记到当前群排行榜")
     async def migrate_catgirl_to_group(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
         ok, msg, img = self.catgirl.migrate_to_group(gid, uid)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("钱包排行榜")
+    @neko_command("钱包排行榜", desc="查看宝石余额排行榜")
     async def wallet_rank(self, event: AstrMessageEvent):
         rows = self.economy.wallet_rank(10)
         if not rows:
@@ -536,7 +619,7 @@ class SapphireEconomyPlugin(Star):
             lines.append(f"{i}. {row['uid']}: {row['balance']} {coin_name}")
         yield event.plain_result("\n".join(lines))
 
-    @neko_command("管理员给")
+    @neko_command("管理员给", desc="管理员给 数量 @用户：给指定用户增加宝石")
     async def admin_give(self, event: AstrMessageEvent, amount: int):
         if not self._is_admin(event):
             return
@@ -550,7 +633,7 @@ class SapphireEconomyPlugin(Star):
         self.economy.add_balance(target, amount)
         yield event.plain_result(f"已给 {target} 添加 {amount} {self._coin_name()}。")
 
-    @neko_command("管理员扣")
+    @neko_command("管理员扣", desc="管理员扣 数量 @用户：扣除指定用户宝石")
     async def admin_deduct(self, event: AstrMessageEvent, amount: int):
         if not self._is_admin(event):
             return
@@ -564,7 +647,7 @@ class SapphireEconomyPlugin(Star):
         self.economy.add_balance(target, -amount)
         yield event.plain_result(f"已从 {target} 扣除 {amount} {self._coin_name()}。")
 
-    @neko_command("管理员查看")
+    @neko_command("管理员查看", desc="管理员查看 @用户：查看指定用户宝石余额")
     async def admin_check(self, event: AstrMessageEvent):
         if not self._is_admin(event):
             return

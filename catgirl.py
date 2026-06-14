@@ -51,14 +51,17 @@ MAX_IMAGE_HEIGHT = 4096
 FEED_SATIETY_LIMIT = 85
 SATIETY_DECAY_MINUTES = 48 * 60
 SATIETY_DECAY_PER_MINUTE = 100 / SATIETY_DECAY_MINUTES
-MOOD_DECAY_PER_MINUTE = 3 / (24 * 60)
-ENERGY_RECOVERY_PER_MINUTE = 20 / (24 * 60)
-HEALTH_HUNGRY_DECAY_PER_MINUTE = 5 / (24 * 60)
-HEALTH_LOW_MOOD_DECAY_PER_MINUTE = 2 / (24 * 60)
-HEALTH_RECOVERY_PER_MINUTE = 1 / (24 * 60)
+MOOD_DECAY_PER_MINUTE = 4 / (24 * 60)
+ENERGY_RECOVERY_PER_MINUTE = 32 / (24 * 60)
+HEALTH_HUNGRY_DECAY_PER_MINUTE = 6 / (24 * 60)
+HEALTH_LOW_MOOD_DECAY_PER_MINUTE = 3 / (24 * 60)
+HEALTH_RECOVERY_PER_MINUTE = 1.5 / (24 * 60)
 RUNAWAY_AFTER_ZERO_SECONDS = 24 * 60 * 60
 WEIGHT_MIN = 40.0
 WEIGHT_MAX = 90.0
+STARTER_CARD_GRANT_ID = "starter_cards_v1"
+RENAME_CARD_ID = "rename_card"
+APPEARANCE_CARD_ID = "appearance_card"
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
@@ -75,7 +78,7 @@ class CatgirlService:
         cache_dir: Path,
         wish_probability: float = 0.8,
         wish_pity: int = 3,
-        appearance_change_price: int = 1200,
+        appearance_change_price: int = 900,
         runtime_config_provider: Callable[[], Dict] | None = None,
     ):
         self.store = store
@@ -121,42 +124,42 @@ class CatgirlService:
         rules = {
             "feed_satiety_limit": float(care.get("feed_satiety_limit", FEED_SATIETY_LIMIT)),
             "satiety_decay_per_minute": 100 / max(1.0, float(care.get("satiety_decay_minutes", SATIETY_DECAY_MINUTES))),
-            "mood_decay_per_minute": max(0.0, float(care.get("mood_decay_per_day", 3))) / (24 * 60),
-            "energy_recovery_per_minute": max(0.0, float(care.get("energy_recovery_per_day", 20))) / (24 * 60),
-            "health_hungry_decay_per_minute": max(0.0, float(care.get("health_hungry_decay_per_day", 5))) / (24 * 60),
-            "health_low_mood_decay_per_minute": max(0.0, float(care.get("health_low_mood_decay_per_day", 2))) / (24 * 60),
-            "health_recovery_per_minute": max(0.0, float(care.get("health_recovery_per_day", 1))) / (24 * 60),
+            "mood_decay_per_minute": max(0.0, float(care.get("mood_decay_per_day", 4))) / (24 * 60),
+            "energy_recovery_per_minute": max(0.0, float(care.get("energy_recovery_per_day", 32))) / (24 * 60),
+            "health_hungry_decay_per_minute": max(0.0, float(care.get("health_hungry_decay_per_day", 6))) / (24 * 60),
+            "health_low_mood_decay_per_minute": max(0.0, float(care.get("health_low_mood_decay_per_day", 3))) / (24 * 60),
+            "health_recovery_per_minute": max(0.0, float(care.get("health_recovery_per_day", 1.5))) / (24 * 60),
             "health_hungry_satiety_threshold": float(care.get("health_hungry_satiety_threshold", 20)),
             "health_low_mood_threshold": float(care.get("health_low_mood_threshold", 30)),
             "runaway_after_zero_seconds": max(1, int(float(care.get("runaway_after_zero_hours", 24)) * 60 * 60)),
             "interaction_daily_limit": max(0, int(care.get("interaction_daily_limit", 5))),
             "interaction_cooldown_seconds": max(0, int(care.get("interaction_cooldown_seconds", 300))),
-            "interaction_energy_cost": max(0, int(care.get("interaction_energy_cost", 6))),
+            "interaction_energy_cost": max(0, int(care.get("interaction_energy_cost", 4))),
             "interaction_soft_limit_extra": max(0, int(care.get("interaction_soft_limit_extra", 3))),
             "interaction_heavy_limit_extra": max(0, int(care.get("interaction_heavy_limit_extra", 7))),
-            "interaction_soft_limit_multiplier": max(0.0, float(care.get("interaction_soft_limit_multiplier", 0.6))),
-            "interaction_heavy_limit_multiplier": max(0.0, float(care.get("interaction_heavy_limit_multiplier", 0.3))),
-            "interaction_minimal_limit_multiplier": max(0.0, float(care.get("interaction_minimal_limit_multiplier", 0.1))),
+            "interaction_soft_limit_multiplier": max(0.0, float(care.get("interaction_soft_limit_multiplier", 0.65))),
+            "interaction_heavy_limit_multiplier": max(0.0, float(care.get("interaction_heavy_limit_multiplier", 0.35))),
+            "interaction_minimal_limit_multiplier": max(0.0, float(care.get("interaction_minimal_limit_multiplier", 0.15))),
             "interaction_good_mood_threshold": float(care.get("interaction_good_mood_threshold", 80)),
             "interaction_low_mood_threshold": float(care.get("interaction_low_mood_threshold", 50)),
             "interaction_bad_mood_threshold": float(care.get("interaction_bad_mood_threshold", 30)),
-            "interaction_high_mood_multiplier": max(0.0, float(care.get("interaction_high_mood_multiplier", 1.15))),
-            "interaction_low_mood_multiplier": max(0.0, float(care.get("interaction_low_mood_multiplier", 0.75))),
-            "interaction_bad_mood_multiplier": max(0.0, float(care.get("interaction_bad_mood_multiplier", 0.5))),
+            "interaction_high_mood_multiplier": max(0.0, float(care.get("interaction_high_mood_multiplier", 1.12))),
+            "interaction_low_mood_multiplier": max(0.0, float(care.get("interaction_low_mood_multiplier", 0.8))),
+            "interaction_bad_mood_multiplier": max(0.0, float(care.get("interaction_bad_mood_multiplier", 0.55))),
             "feed_healthy_threshold": float(care.get("feed_healthy_threshold", 70)),
             "feed_low_health_threshold": float(care.get("feed_low_health_threshold", 40)),
             "feed_bad_health_threshold": float(care.get("feed_bad_health_threshold", 20)),
-            "feed_low_health_multiplier": max(0.0, float(care.get("feed_low_health_multiplier", 0.85))),
-            "feed_bad_health_multiplier": max(0.0, float(care.get("feed_bad_health_multiplier", 0.65))),
-            "feed_critical_health_multiplier": max(0.0, float(care.get("feed_critical_health_multiplier", 0.45))),
-            "work_stable_energy_threshold": float(care.get("work_stable_energy_threshold", 50)),
-            "work_high_energy_threshold": float(care.get("work_high_energy_threshold", 80)),
-            "work_stable_energy_reward_multiplier": max(0.0, float(care.get("work_stable_energy_reward_multiplier", 1.05))),
-            "work_high_energy_reward_multiplier": max(0.0, float(care.get("work_high_energy_reward_multiplier", 1.15))),
-            "work_min_health": float(care.get("work_min_health", 40)),
-            "interact_min_health": float(care.get("interact_min_health", 25)),
-            "work_min_satiety": float(care.get("work_min_satiety", 25)),
-            "work_min_mood": float(care.get("work_min_mood", 35)),
+            "feed_low_health_multiplier": max(0.0, float(care.get("feed_low_health_multiplier", 0.9))),
+            "feed_bad_health_multiplier": max(0.0, float(care.get("feed_bad_health_multiplier", 0.72))),
+            "feed_critical_health_multiplier": max(0.0, float(care.get("feed_critical_health_multiplier", 0.55))),
+            "work_stable_energy_threshold": float(care.get("work_stable_energy_threshold", 55)),
+            "work_high_energy_threshold": float(care.get("work_high_energy_threshold", 85)),
+            "work_stable_energy_reward_multiplier": max(0.0, float(care.get("work_stable_energy_reward_multiplier", 1.04))),
+            "work_high_energy_reward_multiplier": max(0.0, float(care.get("work_high_energy_reward_multiplier", 1.12))),
+            "work_min_health": float(care.get("work_min_health", 35)),
+            "interact_min_health": float(care.get("interact_min_health", 20)),
+            "work_min_satiety": float(care.get("work_min_satiety", 20)),
+            "work_min_mood": float(care.get("work_min_mood", 30)),
         }
         rules["interaction_heavy_limit_extra"] = max(rules["interaction_heavy_limit_extra"], rules["interaction_soft_limit_extra"])
         rules["interaction_low_mood_threshold"] = max(rules["interaction_low_mood_threshold"], rules["interaction_bad_mood_threshold"])
@@ -169,18 +172,18 @@ class CatgirlService:
     def _feed_rules(self) -> Dict:
         feed = self._rules("feed")
         defaults = {
-            "satiety_add_min": 20,
-            "satiety_add_max": 35,
+            "satiety_add_min": 18,
+            "satiety_add_max": 30,
             "mood_add_min": 2,
-            "mood_add_max": 8,
+            "mood_add_max": 7,
             "health_add_min": 0,
             "health_add_max": 3,
-            "energy_add_min": 3,
-            "energy_add_max": 8,
-            "growth_add_min": 5,
-            "growth_add_max": 12,
+            "energy_add_min": 4,
+            "energy_add_max": 9,
+            "growth_add_min": 3,
+            "growth_add_max": 7,
             "intimacy_add_min": 1,
-            "intimacy_add_max": 4,
+            "intimacy_add_max": 3,
         }
         rules = {}
         for key, default in defaults.items():
@@ -310,7 +313,10 @@ class CatgirlService:
             "last_wish_date": today_str(),
             "wish_count": 0,
             "care_stats": {},
-            "unlocks": [],
+            "unlocks": {"work_jobs": []},
+            "buffs": {},
+            "care_cooldowns": {},
+            "gift_stats": {},
             "image": str(img) if img else "",
         }
         return cat
@@ -343,6 +349,7 @@ class CatgirlService:
             first = current.get("first")
             if isinstance(first, dict):
                 cats[uid] = self._finish_adoption_data(str(current.get("gid", "")), uid, first)
+                self._grant_starter_cards(root, uid)
             pending_adoptions.pop(uid, None)
 
         self.store.update(op)
@@ -374,8 +381,9 @@ class CatgirlService:
                     if isinstance(first_pending, dict):
                         adopted = self._finish_adoption_data(str(pending.get("gid", gid)), uid, first_pending)
                         cats[uid] = adopted
+                        granted = self._grant_starter_cards(root, uid)
                         pending_adoptions.pop(uid, None)
-                        return False, "already", f"你已经有猫娘「{adopted['name']}」啦，要好好疼她喔～", None, None
+                        return False, "already", f"你已经有猫娘「{adopted['name']}」啦，要好好疼她喔～{self._starter_card_notice(granted)}", None, None
                     pending_adoptions.pop(uid, None)
                 else:
                     first = pending.get("first")
@@ -500,8 +508,9 @@ class CatgirlService:
 
             selected = self._finish_adoption_data(gid, uid, selected)
             cats[uid] = selected
+            granted = self._grant_starter_cards(root, uid)
             pending_adoptions.pop(uid, None)
-            return True, f"收养完成啦～\n猫娘「{selected.get('name', '猫娘')}」轻轻牵住了你的手。\n从今天开始，你们的羁绊会在每一次陪伴里慢慢成长 ฅ^•ﻌ•^ฅ", selected
+            return True, f"收养完成啦～\n猫娘「{selected.get('name', '猫娘')}」轻轻牵住了你的手。\n从今天开始，你们的羁绊会在每一次陪伴里慢慢成长 ฅ^•ﻌ•^ฅ{self._starter_card_notice(granted)}", selected
 
         ok, msg, selected = self.store.update(op)
         card = self.draw_care_card(
@@ -608,6 +617,7 @@ class CatgirlService:
             cats.pop(uid, None)
             return False, cat, self._runaway_message(cat)
         cats[uid] = cat
+        self._grant_starter_cards(root, uid)
         return True, cat, ""
 
     def _feed_gain(self, cat: Dict) -> float:
@@ -899,6 +909,386 @@ class CatgirlService:
         canvas.save(out, "PNG")
         return out
 
+    def draw_info_card(
+        self,
+        title: str,
+        subtitle: str = "",
+        lines=None,
+        metrics=None,
+        footer: str = "",
+        tag: str = "info",
+    ) -> Path:
+        lines = [str(x) for x in (lines or []) if str(x).strip()]
+        metrics = [(str(k), str(v)) for k, v in (metrics or [])]
+        width = 980
+        padding = 42
+        header_h = 112
+        card_w = width - padding * 2
+        inner_x = padding + 30
+        inner_w = card_w - 60
+        title_font = self._font(48)
+        sub_font = self._font(26)
+        text_font = self._font(25)
+        small_font = self._font(22)
+        metric_font = self._font(23)
+        metric_value_font = self._font(29)
+        line_h = 36
+        cell_h = 58
+        cell_gap = 14
+
+        measure = ImageDraw.Draw(Image.new("RGB", (width, 1), "white"))
+        wrapped_lines = []
+        for line in lines:
+            wrapped_lines.extend(self._wrap_by_width(measure, line, text_font, inner_w, 3))
+        metrics_rows = math.ceil(len(metrics) / 2) if metrics else 0
+        metrics_h = metrics_rows * cell_h + max(0, metrics_rows - 1) * cell_gap
+        text_h = len(wrapped_lines) * line_h
+        footer_lines = self._wrap_by_width(measure, footer, small_font, inner_w, 3) if footer else []
+        footer_h = len(footer_lines) * 28 + 30 if footer_lines else 0
+        gap_after_metrics = 24 if metrics and wrapped_lines else 0
+        content_h = 32 + metrics_h + gap_after_metrics + text_h + footer_h + 32
+        height = padding + header_h + content_h + padding
+
+        canvas = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(canvas)
+        orange = (255, 140, 0)
+        blue = (0, 191, 255)
+        dark = (40, 40, 40)
+        muted = (90, 90, 90)
+        soft = (246, 250, 255)
+
+        draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
+        if subtitle:
+            draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
+
+        card_x, card_y = padding, padding + header_h
+        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + content_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+
+        y = card_y + 32
+        if metrics:
+            cell_w = (inner_w - 16) // 2
+            for idx, (label, value) in enumerate(metrics):
+                col = idx % 2
+                row = idx // 2
+                x = inner_x + col * (cell_w + 16)
+                yy = y + row * (cell_h + cell_gap)
+                mid_y = yy + cell_h // 2
+                label_w = min(int(cell_w * 0.44), max(70, self._text_size(draw, label, metric_font)[0] + 6))
+                value_w = max(60, cell_w - label_w - 42)
+                value_font = self._fit_font(draw, value, 29, value_w)
+                draw.rounded_rectangle((x, yy, x + cell_w, yy + cell_h), radius=10, fill=soft, outline=(220, 238, 248), width=2)
+                draw.text((x + 14, mid_y), self._truncate_text(draw, label, metric_font, label_w), font=metric_font, fill=muted, anchor="lm")
+                draw.text((x + cell_w - 14, mid_y), self._truncate_text(draw, value, value_font, value_w), font=value_font, fill=orange, anchor="rm")
+            y += metrics_h + gap_after_metrics
+
+        for wrapped in wrapped_lines:
+            draw.text((inner_x, y), wrapped, font=text_font, fill=dark)
+            y += line_h
+
+        if footer_lines:
+            y += 16
+            for footer_line in footer_lines:
+                draw.text((inner_x, y), footer_line, font=small_font, fill=muted)
+                y += 28
+
+        safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "info"))[:40] or "info"
+        out = self.cache_dir / f"info_card_{safe_tag}_{int(time.time() * 1000)}.png"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        canvas.save(out, "PNG")
+        return out
+
+    def draw_section_card(
+        self,
+        title: str,
+        subtitle: str = "",
+        sections=None,
+        metrics=None,
+        footer: str = "",
+        tag: str = "sections",
+    ) -> Path:
+        sections = sections or []
+        metrics = [(str(k), str(v)) for k, v in (metrics or [])]
+        width = 980
+        padding = 42
+        header_h = 112
+        card_w = width - padding * 2
+        inner_x = padding + 30
+        inner_w = card_w - 60
+        col_gap = 18
+        section_gap = 18
+        section_w = (inner_w - col_gap) // 2
+
+        title_font = self._font(48)
+        sub_font = self._font(26)
+        section_font = self._font(27)
+        command_font = self._font(22)
+        desc_font = self._font(21)
+        small_font = self._font(22)
+        metric_font = self._font(23)
+        cell_h = 58
+        cell_gap = 14
+        row_h = 58
+
+        def normalize_rows(rows):
+            result = []
+            for row in rows or []:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    result.append((str(row[0]), str(row[1])))
+                else:
+                    text = str(row)
+                    if "｜" in text:
+                        left, right = text.split("｜", 1)
+                    elif ":" in text:
+                        left, right = text.split(":", 1)
+                    elif "：" in text:
+                        left, right = text.split("：", 1)
+                    else:
+                        left, right = text, ""
+                    result.append((left.strip(), right.strip()))
+            return result
+
+        normalized_sections = []
+        for section in sections:
+            if isinstance(section, dict):
+                name = str(section.get("title", ""))
+                rows = normalize_rows(section.get("rows", []))
+            elif isinstance(section, (list, tuple)) and len(section) >= 2:
+                name = str(section[0])
+                rows = normalize_rows(section[1])
+            else:
+                continue
+            if name and rows:
+                normalized_sections.append((name, rows))
+
+        metrics_rows = math.ceil(len(metrics) / 2) if metrics else 0
+        metrics_h = metrics_rows * cell_h + max(0, metrics_rows - 1) * cell_gap
+        top_gap = 24 if metrics else 0
+        section_heights = [44 + len(rows) * row_h + 18 for _, rows in normalized_sections]
+        col_heights = [0, 0]
+        placements = []
+        for idx, height in enumerate(section_heights):
+            col = 0 if col_heights[0] <= col_heights[1] else 1
+            placements.append((col, col_heights[col], height))
+            col_heights[col] += height + section_gap
+        sections_h = max(col_heights) - section_gap if placements else 0
+
+        measure = ImageDraw.Draw(Image.new("RGB", (width, 1), "white"))
+        footer_lines = self._wrap_by_width(measure, footer, small_font, inner_w, 2) if footer else []
+        footer_h = len(footer_lines) * 28 + 34 if footer_lines else 0
+        content_h = 32 + metrics_h + top_gap + sections_h + footer_h + 32
+        height = padding + header_h + content_h + padding
+
+        canvas = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(canvas)
+        orange = (255, 140, 0)
+        blue = (0, 191, 255)
+        dark = (40, 40, 40)
+        muted = (90, 90, 90)
+        soft = (246, 250, 255)
+        line = (220, 238, 248)
+
+        draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
+        if subtitle:
+            draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
+
+        card_x, card_y = padding, padding + header_h
+        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + content_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+        y = card_y + 32
+
+        if metrics:
+            metric_cell_w = (inner_w - 16) // 2
+            for idx, (label, value) in enumerate(metrics):
+                col = idx % 2
+                row = idx // 2
+                x = inner_x + col * (metric_cell_w + 16)
+                yy = y + row * (cell_h + cell_gap)
+                mid_y = yy + cell_h // 2
+                label_w = min(int(metric_cell_w * 0.44), max(70, self._text_size(draw, label, metric_font)[0] + 6))
+                value_w = max(60, metric_cell_w - label_w - 42)
+                value_font = self._fit_font(draw, value, 29, value_w)
+                draw.rounded_rectangle((x, yy, x + metric_cell_w, yy + cell_h), radius=10, fill=soft, outline=line, width=2)
+                draw.text((x + 14, mid_y), self._truncate_text(draw, label, metric_font, label_w), font=metric_font, fill=muted, anchor="lm")
+                draw.text((x + metric_cell_w - 14, mid_y), self._truncate_text(draw, value, value_font, value_w), font=value_font, fill=orange, anchor="rm")
+            y += metrics_h + top_gap
+
+        for idx, (section_title, rows) in enumerate(normalized_sections):
+            col, rel_y, section_h = placements[idx]
+            x = inner_x + col * (section_w + col_gap)
+            yy = y + rel_y
+            draw.rounded_rectangle((x, yy, x + section_w, yy + section_h), radius=12, fill=soft, outline=line, width=2)
+            draw.text((x + 16, yy + 24), section_title, font=section_font, fill=orange, anchor="lm")
+            draw.line((x + 14, yy + 44, x + section_w - 14, yy + 44), fill=line, width=2)
+            row_y = yy + 54
+            text_w = section_w - 32
+            for command, desc in rows:
+                fitted_command_font = self._fit_font(draw, command, 22, text_w, min_size=18)
+                draw.text((x + 16, row_y + 17), self._truncate_text(draw, command, fitted_command_font, text_w), font=fitted_command_font, fill=dark, anchor="lm")
+                draw.text((x + 16, row_y + 42), self._truncate_text(draw, desc, desc_font, text_w), font=desc_font, fill=muted, anchor="lm")
+                row_y += row_h
+
+        if footer_lines:
+            fy = card_y + content_h - 34 - (len(footer_lines) - 1) * 28
+            for footer_line in footer_lines:
+                draw.text((card_x + card_w // 2, fy), footer_line, font=small_font, fill=muted, anchor="ma")
+                fy += 28
+
+        safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "sections"))[:40] or "sections"
+        out = self.cache_dir / f"section_card_{safe_tag}_{int(time.time() * 1000)}.png"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        canvas.save(out, "PNG")
+        return out
+
+    def draw_table_card(
+        self,
+        title: str,
+        subtitle: str = "",
+        headers=None,
+        rows=None,
+        col_widths=None,
+        metrics=None,
+        footer: str = "",
+        tag: str = "table",
+    ) -> Path:
+        headers = [str(x) for x in (headers or [])]
+        rows = [[str(cell) for cell in row] for row in (rows or [])]
+        metrics = [(str(k), str(v)) for k, v in (metrics or [])]
+        width = 980
+        padding = 42
+        header_h = 112
+        card_w = width - padding * 2
+        inner_x = padding + 30
+        inner_w = card_w - 60
+        title_font = self._font(48)
+        sub_font = self._font(26)
+        table_font = self._font(21)
+        header_font = self._font(22)
+        small_font = self._font(22)
+        metric_font = self._font(23)
+        cell_h = 58
+        cell_gap = 14
+        min_row_h = 42
+        table_line_h = 25
+        header_row_h = 44
+
+        if not headers and rows:
+            headers = ["" for _ in rows[0]]
+        col_count = max(len(headers), max((len(row) for row in rows), default=0), 1)
+        if not col_widths or len(col_widths) != col_count:
+            col_widths = [1 for _ in range(col_count)]
+        total_weight = max(1, sum(float(x) for x in col_widths))
+        widths = [int(inner_w * float(weight) / total_weight) for weight in col_widths]
+        widths[-1] += inner_w - sum(widths)
+
+        metrics_rows = math.ceil(len(metrics) / 2) if metrics else 0
+        metrics_h = metrics_rows * cell_h + max(0, metrics_rows - 1) * cell_gap
+        top_gap = 24 if metrics else 0
+        measure = ImageDraw.Draw(Image.new("RGB", (width, 1), "white"))
+
+        def wrap_cell(text: str, max_width: int) -> list[str]:
+            max_width = max(1, int(max_width))
+            result = []
+            for paragraph in str(text or "").splitlines() or [""]:
+                current = ""
+                for ch in paragraph:
+                    candidate = current + ch
+                    if current and self._text_size(measure, candidate, table_font)[0] > max_width:
+                        result.append(current)
+                        current = ch
+                    else:
+                        current = candidate
+                result.append(current)
+            return result or [""]
+
+        wrapped_rows = []
+        row_heights = []
+        for row in rows:
+            wrapped = []
+            max_lines = 1
+            for idx in range(col_count):
+                cell = row[idx] if idx < len(row) else ""
+                cell_lines = wrap_cell(cell, widths[idx] - 20)
+                wrapped.append(cell_lines)
+                max_lines = max(max_lines, len(cell_lines))
+            wrapped_rows.append(wrapped)
+            row_heights.append(max(min_row_h, max_lines * table_line_h + 16))
+
+        table_h = (header_row_h if headers else 0) + sum(row_heights)
+        footer_lines = self._wrap_by_width(measure, footer, small_font, inner_w, 3) if footer else []
+        footer_h = len(footer_lines) * 28 + 34 if footer_lines else 0
+        content_h = 32 + metrics_h + top_gap + table_h + footer_h + 32
+        height = padding + header_h + content_h + padding
+
+        canvas = Image.new("RGB", (width, height), "white")
+        draw = ImageDraw.Draw(canvas)
+        orange = (255, 140, 0)
+        blue = (0, 191, 255)
+        dark = (40, 40, 40)
+        muted = (90, 90, 90)
+        soft = (246, 250, 255)
+        line = (220, 238, 248)
+
+        draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
+        if subtitle:
+            draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
+
+        card_x, card_y = padding, padding + header_h
+        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + content_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+        y = card_y + 32
+
+        if metrics:
+            metric_cell_w = (inner_w - 16) // 2
+            for idx, (label, value) in enumerate(metrics):
+                col = idx % 2
+                row = idx // 2
+                x = inner_x + col * (metric_cell_w + 16)
+                yy = y + row * (cell_h + cell_gap)
+                mid_y = yy + cell_h // 2
+                label_w = min(int(metric_cell_w * 0.44), max(70, self._text_size(draw, label, metric_font)[0] + 6))
+                value_w = max(60, metric_cell_w - label_w - 42)
+                value_font = self._fit_font(draw, value, 29, value_w)
+                draw.rounded_rectangle((x, yy, x + metric_cell_w, yy + cell_h), radius=10, fill=soft, outline=line, width=2)
+                draw.text((x + 14, mid_y), self._truncate_text(draw, label, metric_font, label_w), font=metric_font, fill=muted, anchor="lm")
+                draw.text((x + metric_cell_w - 14, mid_y), self._truncate_text(draw, value, value_font, value_w), font=value_font, fill=orange, anchor="rm")
+            y += metrics_h + top_gap
+
+        x = inner_x
+        if headers:
+            draw.rounded_rectangle((inner_x, y, inner_x + inner_w, y + header_row_h), radius=10, fill=soft, outline=line, width=2)
+            cx = inner_x
+            for idx, header in enumerate(headers[:col_count]):
+                draw.text((cx + 10, y + header_row_h // 2), self._truncate_text(draw, header, header_font, widths[idx] - 20), font=header_font, fill=orange, anchor="lm")
+                cx += widths[idx]
+            y += header_row_h
+
+        for row_idx, row in enumerate(rows):
+            current_row_h = row_heights[row_idx]
+            fill = (255, 255, 255) if row_idx % 2 == 0 else (250, 253, 255)
+            draw.rectangle((inner_x, y, inner_x + inner_w, y + current_row_h), fill=fill)
+            draw.line((inner_x, y + current_row_h, inner_x + inner_w, y + current_row_h), fill=line, width=1)
+            cx = inner_x
+            for idx in range(col_count):
+                color = dark if idx == 0 else muted
+                cell_lines = wrapped_rows[row_idx][idx]
+                text_block_h = len(cell_lines) * table_line_h
+                line_y = y + max(8, (current_row_h - text_block_h) // 2 + 2)
+                for cell_line in cell_lines:
+                    draw.text((cx + 10, line_y), cell_line, font=table_font, fill=color)
+                    line_y += table_line_h
+                cx += widths[idx]
+            y += current_row_h
+
+        if footer_lines:
+            fy = card_y + content_h - 34 - (len(footer_lines) - 1) * 28
+            for footer_line in footer_lines:
+                draw.text((card_x + card_w // 2, fy), footer_line, font=small_font, fill=muted, anchor="ma")
+                fy += 28
+
+        safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "table"))[:40] or "table"
+        out = self.cache_dir / f"table_card_{safe_tag}_{int(time.time() * 1000)}.png"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        canvas.save(out, "PNG")
+        return out
+
     def status(self, uid: str) -> Tuple[bool, str, Optional[Path]]:
         self._finalize_expired_adoption(uid)
 
@@ -983,7 +1373,7 @@ class CatgirlService:
             verb = str(item.get("verb") or "吃").strip() or "吃"
             foods.append((name, low, high, verb))
         if not foods:
-            foods = [("草莓奶油蛋糕", 18, 38, "吃")]
+            foods = [("草莓奶油蛋糕", 32, 58, "吃")]
         name, low, high, verb = random.choice(foods)
         return name, random.randint(low, high), verb
 
@@ -1011,20 +1401,24 @@ class CatgirlService:
                 "growth": (growth_low, growth_high),
                 "intimacy": (intimacy_low, intimacy_high),
                 "mood_reward": float(item.get("mood_reward", 1)),
+                "unlock_cost": max(0, int(item.get("unlock_cost", 0))),
+                "min_stage": max(0, int(item.get("min_stage", 0))),
             })
         if not jobs:
             jobs = [{
                 "id": "cat_cafe",
                 "name": "猫咖服务员",
-                "low": 120,
-                "high": 220,
+                "low": 80,
+                "high": 150,
                 "duration": 45 * 60,
-                "energy": 22,
-                "satiety": 8,
+                "energy": 18,
+                "satiety": 7,
                 "mood": 2,
-                "growth": (5, 10),
-                "intimacy": (1, 3),
+                "growth": (4, 7),
+                "intimacy": (1, 2),
                 "mood_reward": 1,
+                "unlock_cost": 0,
+                "min_stage": 0,
             }]
         return jobs
 
@@ -1057,10 +1451,127 @@ class CatgirlService:
                 f"{job.get('name', '打工地点')}：{self._format_duration(job.get('duration', 0))}，"
                 f"精力 {job.get('energy', 0)}，饱食 {job.get('satiety', 0)}，"
                 f"报酬 {job.get('low', 0)}-{job.get('high', 0)}"
+                f"{'，解锁 ' + str(job.get('unlock_cost', 0)) if int(job.get('unlock_cost', 0) or 0) else ''}"
             )
         if len(jobs) > limit:
             lines.append(f"还有 {len(jobs) - limit} 个地点，可在插件拓展页查看。")
         return lines
+
+    def _shop_rules(self) -> Dict:
+        shop = self._rules("shop")
+        return shop if isinstance(shop, dict) else {}
+
+    def _shop_items(self) -> list[Dict]:
+        items = []
+        for item in self._shop_rules().get("items", []):
+            if isinstance(item, dict) and item.get("enabled", True):
+                items.append(item)
+        return items
+
+    def _care_services(self) -> list[Dict]:
+        services = []
+        for service in self._shop_rules().get("care_services", []):
+            if isinstance(service, dict) and service.get("enabled", True):
+                services.append(service)
+        return services
+
+    def _find_named(self, rows: list[Dict], query: str) -> Tuple[Optional[Dict], list[Dict]]:
+        query = str(query or "").strip()
+        if not query:
+            return None, []
+        normalized = query.lower()
+        for row in rows:
+            names = {str(row.get("name", "")).lower(), str(row.get("id", "")).lower()}
+            if normalized in names:
+                return row, []
+        matches = [
+            row for row in rows
+            if normalized in str(row.get("name", "")).lower() or normalized in str(row.get("id", "")).lower()
+        ]
+        if len(matches) == 1:
+            return matches[0], []
+        return None, matches
+
+    def _shop_summary_lines(self, category: str = "", limit: int = 12) -> list[str]:
+        category = str(category or "").strip()
+        rows = self._shop_items()
+        if category:
+            rows = [row for row in rows if str(row.get("category", "")) == category]
+        lines = []
+        for item in rows[:limit]:
+            lines.append(f"{item.get('name', '道具')}：{int(item.get('price', 0))} {self._coin_name()}｜{item.get('description', '')}")
+        if len(rows) > limit:
+            lines.append(f"还有 {len(rows) - limit} 个道具，可在插件拓展页查看。")
+        return lines or ["当前没有可购买的道具。"]
+
+    def _gift_daily_multiplier(self, cat: Dict) -> Tuple[float, str, int]:
+        shop = self._shop_rules()
+        limit = max(0, int(shop.get("gift_daily_limit", 5)))
+        soft_extra = max(0, int(shop.get("gift_soft_limit_extra", 5)))
+        stats = cat.setdefault("gift_stats", {})
+        today_count = int(stats.get(today_str(), 0) or 0)
+        if limit <= 0 or today_count < limit:
+            return 1.0, "正常", today_count
+        if today_count < limit + soft_extra:
+            return max(0.0, float(shop.get("gift_soft_limit_multiplier", 0.5))), "轻度递减", today_count
+        return max(0.0, float(shop.get("gift_minimal_limit_multiplier", 0.2))), "极低收益", today_count
+
+    def _week_key(self) -> str:
+        year, week, _ = datetime.now().isocalendar()
+        return f"{year}-W{week:02d}"
+
+    def _item_display_name(self, item_id: str) -> str:
+        builtins = {
+            RENAME_CARD_ID: "改名卡",
+            APPEARANCE_CARD_ID: "形象更改卡",
+        }
+        if str(item_id) in builtins:
+            return builtins[str(item_id)]
+        for item in self._shop_items():
+            if str(item.get("id")) == str(item_id):
+                return str(item.get("name") or item_id)
+        return str(item_id)
+
+    def _item_quantity_map(self, root: Dict, uid: str) -> Dict:
+        items = root.setdefault("items", {})
+        bag = items.setdefault(uid, {})
+        if not isinstance(bag, dict):
+            bag = {}
+            items[uid] = bag
+        return bag
+
+    def _item_count(self, value) -> int:
+        try:
+            return max(0, int(value or 0))
+        except Exception:
+            return 0
+
+    def _grant_starter_cards(self, root: Dict, uid: str) -> bool:
+        grants = root.setdefault("item_grants", {})
+        user_grants = grants.setdefault(uid, {})
+        if not isinstance(user_grants, dict):
+            user_grants = {}
+            grants[uid] = user_grants
+        if user_grants.get(STARTER_CARD_GRANT_ID):
+            return False
+        bag = self._item_quantity_map(root, uid)
+        bag[RENAME_CARD_ID] = self._item_count(bag.get(RENAME_CARD_ID)) + 1
+        bag[APPEARANCE_CARD_ID] = self._item_count(bag.get(APPEARANCE_CARD_ID)) + 1
+        user_grants[STARTER_CARD_GRANT_ID] = now_ts()
+        return True
+
+    def _starter_card_notice(self, granted: bool) -> str:
+        return "\n\n初始赠送：改名卡 x1、形象更改卡 x1 已放入背包。" if granted else ""
+
+    def _consume_bag_item(self, bag: Dict, item_id: str) -> bool:
+        count = self._item_count(bag.get(item_id))
+        if count <= 0:
+            return False
+        if count == 1:
+            bag.pop(item_id, None)
+        else:
+            bag[item_id] = count - 1
+        return True
 
     def feed(self, uid: str) -> Tuple[bool, str, Optional[Path]]:
         cat = self._get(uid)
@@ -1183,15 +1694,37 @@ class CatgirlService:
         work_rules = self._rules("work")
         jobs = self._work_jobs(work_rules)
         job_query = str(job_query or "").strip()
+        unlock_prefix = "解锁"
+        if job_query == unlock_prefix:
+            return self.work_unlock(uid)
+        if job_query.startswith(f"{unlock_prefix} "):
+            return self.work_unlock(uid, job_query[len(unlock_prefix):].strip())
         if job_query in ("列表", "地点", "地点列表", "打工地点"):
-            msg = "可选猫娘打工地点：\n" + "\n".join(self._work_job_summary_lines(jobs, 12))
-            card = self.draw_care_card(
+            hint = "发送「猫娘打工 地点名」指定地点；发送「猫娘打工 解锁 地点名」解锁地点。"
+            lines = self._work_job_summary_lines(jobs, len(jobs))
+            table_rows = []
+            for job in jobs:
+                unlock_cost = int(job.get("unlock_cost", 0) or 0)
+                table_rows.append([
+                    job.get("name", "打工地点"),
+                    self._format_duration(job.get("duration", 0)),
+                    f"{job.get('energy', 0)}/{job.get('satiety', 0)}/{job.get('mood', 0)}",
+                    f"{job.get('low', 0)}-{job.get('high', 0)}",
+                    stage_name(job.get("min_stage", 0)),
+                    "开放" if unlock_cost <= 0 else f"{unlock_cost} {coin_name}",
+                ])
+            msg = "可选猫娘打工地点：\n" + "\n".join(lines) + f"\n\n{hint}"
+            card = self.draw_table_card(
                 "打工地点",
-                lines=self._work_job_summary_lines(jobs, 8),
+                subtitle="耗时、消耗与基础报酬",
+                headers=["地点", "耗时", "精/饱/心", "基础报酬", "阶段", "解锁"],
+                rows=table_rows,
+                col_widths=[2.4, 1.15, 1.2, 1.35, 1.05, 1.45],
                 metrics=[
                     ("地点数", str(len(jobs))),
                     ("用法", "猫娘打工 地点名"),
                 ],
+                footer=hint,
                 tag=f"work_jobs_{uid}",
             )
             return True, msg, card
@@ -1266,7 +1799,27 @@ class CatgirlService:
                 cats[uid] = cat
                 return False, msg, cat, "job_not_found", {"jobs": self._work_job_names(jobs)}
 
-            available_jobs = [job for job in jobs if float(cat.get("energy", 0)) >= job["energy"]]
+            unlocked = set((cat.get("unlocks") or {}).get("work_jobs", []))
+
+            def is_job_unlocked(job):
+                return int(job.get("unlock_cost", 0) or 0) <= 0 or str(job.get("id", "")) in unlocked
+
+            def stage_ok(job):
+                return int(cat.get("stage", 0) or 0) >= int(job.get("min_stage", 0) or 0)
+
+            if selected_job and not is_job_unlocked(selected_job):
+                cats[uid] = cat
+                return False, f"「{selected_job['name']}」还没有解锁，需要 {int(selected_job.get('unlock_cost', 0))} {coin_name}。\n发送「猫娘打工 解锁 {selected_job['name']}」解锁。", cat, "blocked", {}
+            if selected_job and not stage_ok(selected_job):
+                cats[uid] = cat
+                return False, f"「{selected_job['name']}」需要达到 {stage_name(selected_job.get('min_stage', 0))} 阶段后才能去。", cat, "blocked", {}
+
+            available_jobs = [
+                job for job in jobs
+                if is_job_unlocked(job)
+                and stage_ok(job)
+                and float(cat.get("energy", 0)) >= job["energy"]
+            ]
             if selected_job and selected_job not in available_jobs:
                 cats[uid] = cat
                 return False, f"「{cat['name']}」现在精力只有 {self._fmt_int(cat.get('energy', 0))}，去{selected_job['name']}需要 {selected_job['energy']}。先让她休息一下吧～", cat, "blocked", {
@@ -1274,8 +1827,9 @@ class CatgirlService:
                 }
             if not available_jobs:
                 cats[uid] = cat
-                min_energy = min(job["energy"] for job in jobs)
-                return False, f"「{cat['name']}」现在精力只有 {self._fmt_int(cat.get('energy', 0))}，至少需要 {min_energy} 才能去最轻松的工作。先让她休息或喂点好吃的吧～", cat, "blocked", {
+                candidate_jobs = [job for job in jobs if is_job_unlocked(job) and stage_ok(job)] or jobs
+                min_energy = min(job["energy"] for job in candidate_jobs)
+                return False, f"「{cat['name']}」现在精力只有 {self._fmt_int(cat.get('energy', 0))}，至少需要 {min_energy} 才能去当前可用工作。先让她休息或喂点好吃的吧～", cat, "blocked", {
                     "min_energy": min_energy,
                 }
 
@@ -1289,9 +1843,12 @@ class CatgirlService:
             job = selected_job or random.choice(available_jobs)
             energy_before = float(cat.get("energy", 0) or 0)
             energy_tier, energy_reward_multiplier = self._work_energy_tier(energy_before)
-            stage_multiplier = float(work_rules.get("reward_stage_base", 0.8)) + int(cat.get("stage", 0)) * float(work_rules.get("reward_stage_step", 0.12))
+            buffs = cat.setdefault("buffs", {})
+            work_buff = max(1.0, float(buffs.get("next_work_reward_multiplier", 1) or 1))
+            stage_multiplier = float(work_rules.get("reward_stage_base", 0.75)) + int(cat.get("stage", 0)) * float(work_rules.get("reward_stage_step", 0.10))
             stage_multiplier *= self._personality_multiplier(cat, "work_reward_multiplier")
             stage_multiplier *= energy_reward_multiplier
+            stage_multiplier *= work_buff
             stage_multiplier = max(0.01, stage_multiplier)
 
             reward = max(1, int(random.randint(job["low"], job["high"]) * stage_multiplier))
@@ -1315,11 +1872,14 @@ class CatgirlService:
                 "intimacy_add": intimacy_add,
                 "mood_reward": job["mood_reward"],
             }
+            buffs.pop("next_work_reward_multiplier", None)
+            cat["buffs"] = buffs
             cats[uid] = cat
             msg = (
                 f"「{cat['name']}」出发去{job['name']}啦～\n"
                 f"预计耗时：{self._format_duration(duration)}\n"
                 f"精力档位：{energy_tier}（报酬 {self._fmt_percent(energy_reward_multiplier * 100)}）\n"
+                f"{'道具加成：' + self._fmt_percent(work_buff * 100) + chr(10) if work_buff > 1 else ''}"
                 f"消耗精力：{self._fmt_delta(-energy_cost)}\n"
                 f"消耗饱食度：{self._fmt_delta(-job['satiety'])}\n"
                 f"预计报酬：{reward} {coin_name}\n\n"
@@ -1335,6 +1895,7 @@ class CatgirlService:
                 "intimacy_add": intimacy_add,
                 "energy_tier": energy_tier,
                 "energy_reward_multiplier": energy_reward_multiplier,
+                "work_buff": work_buff,
             }
 
         ok, msg, cat, event_type, detail = self.store.update(op)
@@ -1356,6 +1917,7 @@ class CatgirlService:
                 ("预计报酬", f"{detail.get('reward', 0)} {coin_name}"),
                 ("耗时", self._format_duration(detail.get("duration", 0))),
                 ("档位", detail.get("energy_tier", "普通打工")),
+                ("道具加成", self._fmt_percent(float(detail.get("work_buff", 1)) * 100)),
                 ("精力", self._fmt_delta(-float(detail.get("energy_cost", 0)))),
                 ("饱食度", self._fmt_delta(-float(detail.get("satiety_cost", 0)))),
                 ("成长值", self._fmt_delta(detail.get("growth_add", 0))),
@@ -1364,6 +1926,7 @@ class CatgirlService:
             lines = [
                 f"出发去{detail.get('job_name', '打工')}啦～",
                 f"精力档位：{detail.get('energy_tier', '普通打工')}，报酬 {self._fmt_percent(float(detail.get('energy_reward_multiplier', 1)) * 100)}。",
+                f"道具加成：{self._fmt_percent(float(detail.get('work_buff', 1)) * 100)}。" if float(detail.get("work_buff", 1)) > 1 else "",
                 "等她回来后，再发送「猫娘打工」领取报酬和成长奖励。",
             ]
             title = "猫娘打工"
@@ -1387,6 +1950,102 @@ class CatgirlService:
             title = "暂不能打工"
 
         card = self.draw_care_card(title, cat, lines=lines, metrics=metrics, tag=f"work_{uid}")
+        return ok, msg, card
+
+    def work_unlock(self, uid: str, job_query: str = ""):
+        self._finalize_expired_adoption(uid)
+        coin_name = self._coin_name()
+        jobs = self._work_jobs(self._rules("work"))
+        job_query = str(job_query or "").strip()
+
+        if not job_query:
+            cat = self._get(uid)
+            unlocked = set(((cat or {}).get("unlocks") or {}).get("work_jobs", []))
+            rows = []
+            for job in jobs:
+                cost = int(job.get("unlock_cost", 0) or 0)
+                if cost <= 0:
+                    state = "默认开放"
+                elif str(job.get("id", "")) in unlocked:
+                    state = "已解锁"
+                else:
+                    state = f"解锁 {cost} {coin_name}"
+                rows.append(f"{job.get('name', '打工地点')}：{state}，阶段 {stage_name(job.get('min_stage', 0))}")
+            table_rows = []
+            for job in jobs:
+                cost = int(job.get("unlock_cost", 0) or 0)
+                if cost <= 0:
+                    state = "默认开放"
+                elif str(job.get("id", "")) in unlocked:
+                    state = "已解锁"
+                else:
+                    state = f"{cost} {coin_name}"
+                table_rows.append([job.get("name", "打工地点"), state, stage_name(job.get("min_stage", 0))])
+            hint = "发送「猫娘打工 解锁 地点名」解锁指定地点；发送「猫娘打工 列表」查看收益和消耗。"
+            msg = "打工地点解锁：\n" + "\n".join(rows) + f"\n\n{hint}"
+            card = self.draw_table_card(
+                "打工解锁",
+                headers=["地点", "状态 / 费用", "阶段要求"],
+                rows=table_rows,
+                col_widths=[2.8, 1.8, 1.2],
+                metrics=[("地点数", str(len(jobs))), ("余额", f"{self.economy.get_balance(uid)} {coin_name}")],
+                footer=hint,
+                tag=f"work_unlock_{uid}",
+            )
+            return True, msg, card
+
+        selected_job, matches = self._find_work_job(jobs, job_query)
+        if not selected_job:
+            if matches:
+                names = "、".join(str(job.get("name", "打工地点")) for job in matches[:8])
+                return False, f"找到多个相近的打工地点：{names}\n请发送更完整的地点名。", None
+            return False, f"没有找到「{job_query}」这个打工地点。\n可选地点：{self._work_job_names(jobs)}", None
+
+        def op(root):
+            wallet = root.setdefault("wallet", {})
+            ok, cat, err_msg = self._load_active_cat(root, uid)
+            if not ok:
+                return False, err_msg, cat, 0
+            cats = root.setdefault("catgirls", {})
+            cost = int(selected_job.get("unlock_cost", 0) or 0)
+            unlocks = cat.setdefault("unlocks", {})
+            work_jobs = unlocks.setdefault("work_jobs", [])
+            job_id = str(selected_job.get("id", ""))
+            if cost <= 0:
+                if job_id and job_id not in work_jobs:
+                    work_jobs.append(job_id)
+                cats[uid] = cat
+                return True, f"「{selected_job['name']}」本来就是开放地点，已经登记到解锁列表。", cat, int(wallet.get(uid, 0))
+            if job_id in work_jobs:
+                cats[uid] = cat
+                return False, f"「{selected_job['name']}」已经解锁过了。", cat, int(wallet.get(uid, 0))
+            if int(cat.get("stage", 0) or 0) < int(selected_job.get("min_stage", 0) or 0):
+                cats[uid] = cat
+                return False, f"「{selected_job['name']}」需要达到 {stage_name(selected_job.get('min_stage', 0))} 阶段后才能解锁。", cat, int(wallet.get(uid, 0))
+            balance = int(wallet.get(uid, 0))
+            if balance < cost:
+                cats[uid] = cat
+                return False, f"解锁「{selected_job['name']}」需要 {cost} {coin_name}，你目前只有 {balance} {coin_name}。", cat, balance
+            wallet[uid] = balance - cost
+            work_jobs.append(job_id)
+            unlocks["work_jobs"] = work_jobs
+            cat["unlocks"] = unlocks
+            cats[uid] = cat
+            return True, f"已解锁打工地点「{selected_job['name']}」，花费 {cost} {coin_name}。\n当前余额：{wallet[uid]} {coin_name}", cat, wallet[uid]
+
+        ok, msg, cat, balance = self.store.update(op)
+        card = self.draw_care_card(
+            "打工解锁完成" if ok else "打工解锁未完成",
+            cat,
+            lines=[msg],
+            metrics=[
+                ("地点", selected_job.get("name", "打工地点")),
+                ("费用", f"{int(selected_job.get('unlock_cost', 0) or 0)} {coin_name}"),
+                ("余额", f"{balance} {coin_name}"),
+                ("阶段要求", stage_name(selected_job.get("min_stage", 0))),
+            ],
+            tag=f"work_unlock_{uid}",
+        ) if cat else None
         return ok, msg, card
 
     def interact(self, uid: str, action: str):
@@ -1432,7 +2091,7 @@ class CatgirlService:
             now = now_ts()
             ok, cat, err_msg = self._load_active_cat(root, uid)
             if not ok:
-                return False, err_msg, cat, None, 0, 0, 0, 0, 0, 1, 1, "", ""
+                return False, err_msg, cat, None, 0, 0, 0, 0, 0, 1, 1, "", "", 1
 
             cats = root.setdefault("catgirls", {})
             interact_data = cat.setdefault("interactions", {})
@@ -1442,24 +2101,26 @@ class CatgirlService:
             if cooldown > 0 and last_interact_at and now - last_interact_at < cooldown:
                 cats[uid] = cat
                 remain = self._format_duration(cooldown - (now - last_interact_at))
-                return False, f"「{cat['name']}」刚刚才互动过，先让她缓一缓吧。\n冷却剩余：{remain}", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", "冷却中"
+                return False, f"「{cat['name']}」刚刚才互动过，先让她缓一缓吧。\n冷却剩余：{remain}", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", "冷却中", 1
 
             if float(cat.get("health", 0)) < care_rules["interact_min_health"]:
                 cats[uid] = cat
-                return False, f"「{cat['name']}」现在很虚弱，先喂点东西、让她好好休息一下吧。", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", ""
+                return False, f"「{cat['name']}」现在很虚弱，先喂点东西、让她好好休息一下吧。", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", "", 1
             if int(cat.get("stage", 0)) < min_stage:
                 cats[uid] = cat
-                return False, f"「{cat['name']}」还有些害羞，等你们更亲近一点再做这个互动吧。", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", ""
+                return False, f"「{cat['name']}」还有些害羞，等你们更亲近一点再做这个互动吧。", cat, None, 0, 0, 0, today_count, 0, 1, 1, "", "", 1
             effective_base_energy_cost = max(int(base_energy_cost), int(care_rules["interaction_energy_cost"]))
             energy_cost = self._scaled_int(effective_base_energy_cost, self._personality_multiplier(cat, "interaction_energy_cost_multiplier"))
             if energy_cost and float(cat.get("energy", 0)) < energy_cost:
                 cats[uid] = cat
-                return False, f"「{cat['name']}」现在精力只有 {self._fmt_int(cat.get('energy', 0))}，这次互动需要 {energy_cost}。先让她休息一下再玩吧～", cat, None, 0, 0, 0, today_count, energy_cost, 1, 1, "", ""
+                return False, f"「{cat['name']}」现在精力只有 {self._fmt_int(cat.get('energy', 0))}，这次互动需要 {energy_cost}。先让她休息一下再玩吧～", cat, None, 0, 0, 0, today_count, energy_cost, 1, 1, "", "", 1
 
             mood_add = self._scaled_int(base_mood_add, self._personality_multiplier(cat, "interaction_mood_multiplier"))
             mood_multiplier, mood_label = self._mood_interaction_multiplier(cat)
             daily_multiplier, daily_label = self._interaction_daily_multiplier(today_count)
-            reward_multiplier = mood_multiplier * daily_multiplier
+            buffs = cat.setdefault("buffs", {})
+            interaction_buff = max(1.0, float(buffs.get("next_interaction_multiplier", 1) or 1))
+            reward_multiplier = mood_multiplier * daily_multiplier * interaction_buff
             intimacy_add = self._scaled_int(base_intimacy_add, self._personality_multiplier(cat, "interaction_intimacy_multiplier") * reward_multiplier)
             growth_add = self._scaled_int(base_growth_add, self._personality_multiplier(cat, "interaction_growth_multiplier") * reward_multiplier)
             cat["mood"] = round(clamp(float(cat.get("mood", 80)) + mood_add, 0, 100), 4)
@@ -1469,13 +2130,15 @@ class CatgirlService:
             interact_data[today] = today_count + 1
             interact_data["_last_at"] = now
             cat["interactions"] = interact_data
+            buffs.pop("next_interaction_multiplier", None)
+            cat["buffs"] = buffs
             stats = cat.setdefault("care_stats", {})
             stats["total_interacts"] = int(stats.get("total_interacts", 0)) + 1
             cat, stage_msg = self._advance_stage(cat)
             cats[uid] = cat
-            return True, "", cat, stage_msg, mood_add, intimacy_add, growth_add, interact_data[today], energy_cost, mood_multiplier, daily_multiplier, mood_label, daily_label
+            return True, "", cat, stage_msg, mood_add, intimacy_add, growth_add, interact_data[today], energy_cost, mood_multiplier, daily_multiplier, mood_label, daily_label, interaction_buff
 
-        ok, err_msg, cat, stage_msg, mood_add, intimacy_add, growth_add, today_count, energy_cost, mood_multiplier, daily_multiplier, mood_label, daily_label = self.store.update(op)
+        ok, err_msg, cat, stage_msg, mood_add, intimacy_add, growth_add, today_count, energy_cost, mood_multiplier, daily_multiplier, mood_label, daily_label, interaction_buff = self.store.update(op)
         if not ok:
             card = self.draw_care_card(
                 "互动未完成",
@@ -1490,13 +2153,14 @@ class CatgirlService:
             ) if cat else None
             return False, err_msg, card
 
-        reward_multiplier = float(mood_multiplier or 1) * float(daily_multiplier or 1)
+        reward_multiplier = float(mood_multiplier or 1) * float(daily_multiplier or 1) * float(interaction_buff or 1)
         msg = (
             f"{text}\n"
             f"心情 {self._fmt_delta(mood_add)}\n"
             f"亲密度 {self._fmt_delta(intimacy_add)}\n"
             f"成长值 {self._fmt_delta(growth_add)}\n"
             f"互动收益：{self._fmt_percent(reward_multiplier * 100)}（{mood_label}，{daily_label}）\n"
+            f"{'道具加成：' + self._fmt_percent(float(interaction_buff) * 100) + chr(10) if float(interaction_buff or 1) > 1 else ''}"
             f"当前阶段：{stage_name(cat.get('stage', 0))}\n"
             f"今日互动次数：{today_count}/{daily_limit if daily_limit else '不限'}"
         )
@@ -1511,6 +2175,7 @@ class CatgirlService:
             lines=[
                 text,
                 f"互动收益：{self._fmt_percent(reward_multiplier * 100)}（{mood_label}，{daily_label}）",
+                f"道具加成：{self._fmt_percent(float(interaction_buff) * 100)}" if float(interaction_buff or 1) > 1 else "",
                 stage_msg.strip() if stage_msg else "",
             ],
             metrics=[
@@ -1520,9 +2185,398 @@ class CatgirlService:
                 ("精力", self._fmt_delta(-energy_cost) if energy_cost else "0.0"),
                 ("今日互动", f"{today_count}/{daily_limit if daily_limit else '不限'}"),
                 ("收益", self._fmt_percent(reward_multiplier * 100)),
+                ("道具", self._fmt_percent(float(interaction_buff or 1) * 100)),
                 ("阶段", stage_name(cat.get("stage", 0))),
             ],
             tag=f"interact_{uid}",
+        )
+        return True, msg, card
+
+    def shop(self, uid: str, category: str = ""):
+        category = str(category or "").strip()
+        if category in ("列表", "全部"):
+            category = ""
+        shop_rows = self._shop_items()
+        if category:
+            shop_rows = [row for row in shop_rows if str(row.get("category", "")) == category]
+        lines = self._shop_summary_lines(category, len(shop_rows) or 1)
+        table_rows = [
+            [item.get("name", "道具"), item.get("category", "道具"), f"{int(item.get('price', 0))} {self._coin_name()}", item.get("description", "")]
+            for item in shop_rows
+        ]
+        if not table_rows:
+            table_rows = [["无", category or "全部", "-", "当前没有可购买的道具"]]
+        hint = "发送「购买 道具名 [数量]」购买；发送「背包」查看已拥有道具；可用「猫娘商店 礼物/道具/护理/食物/功能卡」筛选。"
+        msg = "猫娘商店：\n" + "\n".join(lines) + f"\n\n{hint}"
+        card = self.draw_table_card(
+            "猫娘商店",
+            subtitle=category or "全部道具",
+            headers=["道具", "分类", "价格", "说明"],
+            rows=table_rows,
+            col_widths=[1.6, 0.9, 1.15, 2.8],
+            metrics=[
+                ("余额", f"{self.economy.get_balance(uid)} {self._coin_name()}"),
+                ("道具数", str(len(shop_rows))),
+            ],
+            footer=hint,
+            tag=f"shop_{uid}",
+        )
+        return True, msg, card
+
+    def bag(self, uid: str):
+        def op(root):
+            self._grant_starter_cards(root, uid)
+            return dict(self._item_quantity_map(root, uid))
+
+        items = self.store.update(op) or {}
+        rows = []
+        table_rows = []
+        for item_id, count in items.items():
+            count = self._item_count(count)
+            if count > 0:
+                name = self._item_display_name(item_id)
+                rows.append(f"{name} x{count}")
+                table_rows.append([name, str(count), "发送「使用 道具名」"])
+        cat = self._get(uid)
+        buffs = (cat or {}).get("buffs") if isinstance((cat or {}).get("buffs"), dict) else {}
+        if buffs:
+            if float(buffs.get("next_interaction_multiplier", 1) or 1) > 1:
+                value = self._fmt_percent(float(buffs.get("next_interaction_multiplier")) * 100)
+                rows.append(f"互动加成待生效：{value}")
+                table_rows.append(["互动加成", value, "下次互动生效"])
+            if float(buffs.get("next_work_reward_multiplier", 1) or 1) > 1:
+                value = self._fmt_percent(float(buffs.get("next_work_reward_multiplier")) * 100)
+                rows.append(f"打工加成待生效：{value}")
+                table_rows.append(["打工加成", value, "下次打工生效"])
+        if not rows:
+            rows = ["背包还是空的。发送「猫娘商店」看看可以买什么。"]
+            table_rows = [["空", "0", "发送「猫娘商店」购买"]]
+        hint = "发送「使用 道具名」使用道具；发送「购买 道具名 [数量]」购买更多道具。"
+        msg = "背包：\n" + "\n".join(rows) + f"\n\n{hint}"
+        card = self.draw_table_card(
+            "猫娘背包",
+            headers=["物品 / 加成", "数量 / 倍率", "说明"],
+            rows=table_rows,
+            col_widths=[1.8, 1.2, 2.4],
+            metrics=[
+                ("道具种类", str(len([v for v in items.values() if self._item_count(v) > 0]))),
+                ("余额", f"{self.economy.get_balance(uid)} {self._coin_name()}"),
+            ],
+            footer=hint,
+            tag=f"bag_{uid}",
+        )
+        return True, msg, card
+
+    def _parse_item_quantity(self, query: str) -> Tuple[str, int]:
+        query = str(query or "").strip()
+        match = re.search(r"\s+(\d{1,3})$", query)
+        if not match:
+            return query, 1
+        qty = max(1, int(match.group(1)))
+        name = query[:match.start()].strip()
+        return name or query, qty
+
+    def buy_item(self, uid: str, query: str):
+        self._finalize_expired_adoption(uid)
+        item_query, quantity = self._parse_item_quantity(query)
+        item, matches = self._find_named(self._shop_items(), item_query)
+        if not item:
+            if matches:
+                names = "、".join(str(row.get("name", "道具")) for row in matches[:8])
+                return False, f"找到多个相近道具：{names}\n请发送更完整的道具名。", None
+            return False, f"没有找到「{item_query}」这个道具。发送「猫娘商店」查看可购买道具。", None
+        coin_name = self._coin_name()
+        price = int(item.get("price", 0) or 0)
+        total = price * quantity
+
+        def op(root):
+            wallet = root.setdefault("wallet", {})
+            ok, cat, err_msg = self._load_active_cat(root, uid)
+            if not ok:
+                return False, err_msg, cat, 0, 0
+            balance = int(wallet.get(uid, 0))
+            if balance < total:
+                return False, f"购买 {quantity} 个「{item['name']}」需要 {total} {coin_name}，你目前只有 {balance} {coin_name}。", cat, balance, 0
+            bag = self._item_quantity_map(root, uid)
+            item_id = str(item.get("id"))
+            bag[item_id] = int(bag.get(item_id, 0) or 0) + quantity
+            wallet[uid] = balance - total
+            root.setdefault("catgirls", {})[uid] = cat
+            return True, f"购买成功：{item['name']} x{quantity}\n花费：{total} {coin_name}\n当前余额：{wallet[uid]} {coin_name}", cat, wallet[uid], int(bag[item_id])
+
+        ok, msg, cat, balance, owned = self.store.update(op)
+        card = self.draw_care_card(
+            "购买完成" if ok else "购买未完成",
+            cat,
+            lines=[msg, str(item.get("description", ""))],
+            metrics=[
+                ("道具", item.get("name", "道具")),
+                ("数量", str(quantity)),
+                ("花费", f"{total} {coin_name}"),
+                ("拥有", str(owned)),
+                ("余额", f"{balance} {coin_name}"),
+            ],
+            tag=f"buy_{uid}",
+        ) if cat else None
+        return ok, msg, card
+
+    def use_item(self, uid: str, query: str):
+        self._finalize_expired_adoption(uid)
+        item_query = str(query or "").strip()
+        item, matches = self._find_named(self._shop_items(), item_query)
+        if not item:
+            if matches:
+                names = "、".join(str(row.get("name", "道具")) for row in matches[:8])
+                return False, f"找到多个相近道具：{names}\n请发送更完整的道具名。", None
+            return False, f"没有找到「{item_query}」这个道具。", None
+        effect = str(item.get("effect", "instant"))
+
+        def op(root):
+            ok, cat, err_msg = self._load_active_cat(root, uid)
+            if not ok:
+                return False, err_msg, cat, {}
+            bag = self._item_quantity_map(root, uid)
+            item_id = str(item.get("id"))
+            count = self._item_count(bag.get(item_id))
+            if count <= 0:
+                return False, f"背包里没有「{item['name']}」。", cat, {}
+            if effect == "rename_card":
+                return False, "改名卡会在发送「猫娘改名 新名字」时自动消耗。", cat, {"hint_only": True}
+            if effect == "appearance_card":
+                return False, "形象更改卡会在发送「更换猫娘形象」并上传图片时自动消耗。", cat, {"hint_only": True}
+
+            detail = {"item": item.get("name", "道具"), "effect": effect}
+            mood_add = health_add = energy_add = satiety_add = growth_add = intimacy_add = 0
+
+            if effect == "gift":
+                stats = cat.setdefault("gift_stats", {})
+                today = today_str()
+                week = self._week_key()
+                daily_item_key = f"{today}:{item_id}"
+                weekly_item_key = f"{week}:{item_id}"
+                daily_limit = int(item.get("daily_limit", 0) or 0)
+                weekly_limit = int(item.get("weekly_limit", 0) or 0)
+                if daily_limit and int(stats.get(daily_item_key, 0) or 0) >= daily_limit:
+                    return False, f"「{item['name']}」今天已经送过很多次了，明天再送吧。", cat, {}
+                if weekly_limit and int(stats.get(weekly_item_key, 0) or 0) >= weekly_limit:
+                    return False, f"「{item['name']}」本周已经达到使用上限。", cat, {}
+                gift_multiplier, gift_label, today_count = self._gift_daily_multiplier(cat)
+                mood_add = random.randint(int(item.get("mood_min", 0) or 0), int(item.get("mood_max", item.get("mood_min", 0)) or 0))
+                intimacy_add = self._scaled_int(random.randint(int(item.get("intimacy_min", 0) or 0), int(item.get("intimacy_max", item.get("intimacy_min", 0)) or 0)), gift_multiplier)
+                growth_add = self._scaled_int(random.randint(int(item.get("growth_min", 0) or 0), int(item.get("growth_max", item.get("growth_min", 0)) or 0)), gift_multiplier)
+                stats[today] = today_count + 1
+                stats[daily_item_key] = int(stats.get(daily_item_key, 0) or 0) + 1
+                stats[weekly_item_key] = int(stats.get(weekly_item_key, 0) or 0) + 1
+                cat["gift_stats"] = stats
+                detail.update({"gift_multiplier": gift_multiplier, "gift_label": gift_label, "today_count": stats[today]})
+            elif effect == "next_interaction":
+                buffs = cat.setdefault("buffs", {})
+                buffs["next_interaction_multiplier"] = max(float(buffs.get("next_interaction_multiplier", 1) or 1), float(item.get("multiplier", 1) or 1))
+                cat["buffs"] = buffs
+                detail["buff"] = f"下一次互动收益 {self._fmt_percent(float(buffs['next_interaction_multiplier']) * 100)}"
+            elif effect == "next_work":
+                buffs = cat.setdefault("buffs", {})
+                buffs["next_work_reward_multiplier"] = max(float(buffs.get("next_work_reward_multiplier", 1) or 1), float(item.get("multiplier", 1) or 1))
+                cat["buffs"] = buffs
+                detail["buff"] = f"下一次猫娘打工报酬 {self._fmt_percent(float(buffs['next_work_reward_multiplier']) * 100)}"
+            else:
+                satiety_add = int(item.get("satiety_add", 0) or 0)
+                mood_add = int(item.get("mood_add", 0) or 0)
+                health_add = int(item.get("health_add", 0) or 0)
+                energy_add = int(item.get("energy_add", 0) or 0)
+                growth_add = random.randint(int(item.get("growth_min", 0) or 0), int(item.get("growth_max", item.get("growth_min", 0)) or 0))
+                intimacy_add = random.randint(int(item.get("intimacy_min", 0) or 0), int(item.get("intimacy_max", item.get("intimacy_min", 0)) or 0))
+
+            if satiety_add:
+                cat["satiety"] = round(clamp(float(cat.get("satiety", 0)) + satiety_add, 0, 100), 4)
+                if cat["satiety"] > 0:
+                    cat.pop("satiety_zero_since", None)
+            if mood_add:
+                cat["mood"] = round(clamp(float(cat.get("mood", 80)) + mood_add, 0, 100), 4)
+            if health_add:
+                cat["health"] = round(clamp(float(cat.get("health", 90)) + health_add, 0, 100), 4)
+            if energy_add:
+                cat["energy"] = round(clamp(float(cat.get("energy", 80)) + energy_add, 0, 100), 4)
+            if growth_add:
+                cat["growth"] = int(cat.get("growth", 0)) + growth_add
+            if intimacy_add:
+                cat["intimacy"] = int(cat.get("intimacy", 0)) + intimacy_add
+            cat, stage_msg = self._advance_stage(cat)
+
+            bag[item_id] = count - 1
+            if bag[item_id] <= 0:
+                bag.pop(item_id, None)
+            root.setdefault("catgirls", {})[uid] = cat
+            detail.update({
+                "satiety_add": satiety_add,
+                "mood_add": mood_add,
+                "health_add": health_add,
+                "energy_add": energy_add,
+                "growth_add": growth_add,
+                "intimacy_add": intimacy_add,
+                "left": int(bag.get(item_id, 0) or 0),
+                "stage_msg": stage_msg,
+            })
+            return True, "", cat, detail
+
+        ok, msg, cat, detail = self.store.update(op)
+        if not ok:
+            card = self.draw_care_card("使用未完成", cat, lines=[msg], tag=f"use_err_{uid}") if cat else None
+            return False, msg, card
+
+        lines = [f"使用了「{detail.get('item')}」。"]
+        if detail.get("buff"):
+            lines.append(detail["buff"])
+        if detail.get("gift_label"):
+            lines.append(f"礼物收益：{self._fmt_percent(float(detail.get('gift_multiplier', 1)) * 100)}（{detail.get('gift_label')}）")
+        if detail.get("stage_msg"):
+            lines.append(str(detail.get("stage_msg")).strip())
+        msg = "\n".join(lines) + (
+            f"\n饱食度 {self._fmt_delta(detail.get('satiety_add', 0))}"
+            f"\n心情 {self._fmt_delta(detail.get('mood_add', 0))}"
+            f"\n健康 {self._fmt_delta(detail.get('health_add', 0))}"
+            f"\n精力 {self._fmt_delta(detail.get('energy_add', 0))}"
+            f"\n亲密度 {self._fmt_delta(detail.get('intimacy_add', 0))}"
+            f"\n成长值 {self._fmt_delta(detail.get('growth_add', 0))}"
+        )
+        card = self.draw_care_card(
+            "道具使用",
+            cat,
+            subtitle=str(detail.get("item", "")),
+            lines=lines,
+            metrics=[
+                ("饱食度", self._fmt_delta(detail.get("satiety_add", 0))),
+                ("心情", self._fmt_delta(detail.get("mood_add", 0))),
+                ("健康", self._fmt_delta(detail.get("health_add", 0))),
+                ("精力", self._fmt_delta(detail.get("energy_add", 0))),
+                ("亲密度", self._fmt_delta(detail.get("intimacy_add", 0))),
+                ("成长值", self._fmt_delta(detail.get("growth_add", 0))),
+                ("剩余", str(detail.get("left", 0))),
+            ],
+            tag=f"use_{uid}",
+        )
+        return True, msg, card
+
+    def care_service(self, uid: str, service_query: str = ""):
+        self._finalize_expired_adoption(uid)
+        service_query = str(service_query or "").strip()
+        services = self._care_services()
+        coin_name = self._coin_name()
+        if not service_query or service_query in ("列表", "护理"):
+            lines = []
+            table_rows = []
+            for service in services:
+                base = int(service.get("base_price", 0) or 0)
+                per = int(service.get("price_per_missing", 0) or 0)
+                price = f"{base}+缺失健康x{per}" if per else str(base)
+                effects = []
+                if int(service.get("target_health", 0) or 0):
+                    effects.append(f"健康到{int(service.get('target_health', 0))}")
+                for key, label in [("health_add", "健"), ("mood_add", "心"), ("energy_add", "精"), ("satiety_add", "饱")]:
+                    value = int(service.get(key, 0) or 0)
+                    if value:
+                        effects.append(f"{label}{value:+d}")
+                effect_text = " / ".join(effects) or "-"
+                lines.append(f"{service.get('name', '护理')}：{price} {coin_name}，冷却 {self._format_duration(service.get('cooldown_seconds', 0))}")
+                table_rows.append([
+                    service.get("name", "护理"),
+                    f"{price} {coin_name}",
+                    effect_text,
+                    self._format_duration(service.get("cooldown_seconds", 0)),
+                ])
+            hint = "发送「猫娘护理 服务名」购买护理服务；例如「猫娘护理 看病」。"
+            msg = "猫娘护理服务：\n" + "\n".join(lines) + f"\n\n{hint}"
+            card = self.draw_table_card(
+                "猫娘护理",
+                subtitle="服务价格、效果与冷却",
+                headers=["服务", "价格", "效果", "冷却"],
+                rows=table_rows,
+                col_widths=[1.5, 1.6, 2.1, 1.2],
+                metrics=[("服务数", str(len(services))), ("余额", f"{self.economy.get_balance(uid)} {coin_name}")],
+                footer=hint,
+                tag=f"care_{uid}",
+            )
+            return True, msg, card
+
+        service, matches = self._find_named(services, service_query)
+        if not service:
+            if matches:
+                names = "、".join(str(row.get("name", "护理")) for row in matches[:8])
+                return False, f"找到多个相近护理服务：{names}\n请发送更完整的服务名。", None
+            return False, f"没有找到「{service_query}」这个护理服务。发送「猫娘护理」查看列表。", None
+
+        def op(root):
+            wallet = root.setdefault("wallet", {})
+            ok, cat, err_msg = self._load_active_cat(root, uid)
+            if not ok:
+                return False, err_msg, cat, 0, {}
+            now = now_ts()
+            service_id = str(service.get("id", ""))
+            cooldowns = cat.setdefault("care_cooldowns", {})
+            until = int(cooldowns.get(service_id, 0) or 0)
+            if until > now:
+                return False, f"「{service['name']}」还在冷却中，剩余 {self._format_duration(until - now)}。", cat, int(wallet.get(uid, 0)), {}
+            current_health = float(cat.get("health", 0) or 0)
+            target_health = int(service.get("target_health", 0) or 0)
+            missing = max(0, target_health - int(current_health))
+            price = int(service.get("base_price", 0) or 0) + missing * int(service.get("price_per_missing", 0) or 0)
+            balance = int(wallet.get(uid, 0))
+            if balance < price:
+                return False, f"「{service['name']}」需要 {price} {coin_name}，你目前只有 {balance} {coin_name}。", cat, balance, {}
+            health_before = float(cat.get("health", 0) or 0)
+            mood_before = float(cat.get("mood", 0) or 0)
+            energy_before = float(cat.get("energy", 0) or 0)
+            satiety_before = float(cat.get("satiety", 0) or 0)
+            if target_health:
+                cat["health"] = round(max(float(cat.get("health", 0) or 0), float(target_health)), 4)
+            cat["health"] = round(clamp(float(cat.get("health", 90)) + float(service.get("health_add", 0) or 0), 0, 100), 4)
+            cat["mood"] = round(clamp(float(cat.get("mood", 80)) + float(service.get("mood_add", 0) or 0), 0, 100), 4)
+            cat["energy"] = round(clamp(float(cat.get("energy", 80)) + float(service.get("energy_add", 0) or 0), 0, 100), 4)
+            cat["satiety"] = round(clamp(float(cat.get("satiety", 0)) + float(service.get("satiety_add", 0) or 0), 0, 100), 4)
+            if cat["satiety"] > 0:
+                cat.pop("satiety_zero_since", None)
+            cooldowns[service_id] = now + int(service.get("cooldown_seconds", 0) or 0)
+            cat["care_cooldowns"] = cooldowns
+            wallet[uid] = balance - price
+            root.setdefault("catgirls", {})[uid] = cat
+            detail = {
+                "price": price,
+                "health_add": cat["health"] - health_before,
+                "mood_add": cat["mood"] - mood_before,
+                "energy_add": cat["energy"] - energy_before,
+                "satiety_add": cat["satiety"] - satiety_before,
+                "balance": wallet[uid],
+                "cooldown": int(service.get("cooldown_seconds", 0) or 0),
+            }
+            return True, "", cat, wallet[uid], detail
+
+        ok, msg, cat, balance, detail = self.store.update(op)
+        if not ok:
+            card = self.draw_care_card("护理未完成", cat, lines=[msg], metrics=[("余额", f"{balance} {coin_name}")], tag=f"care_err_{uid}") if cat else None
+            return False, msg, card
+        msg = (
+            f"完成护理：{service['name']}\n"
+            f"花费：{detail['price']} {coin_name}\n"
+            f"饱食度 {self._fmt_delta(detail.get('satiety_add', 0))}\n"
+            f"心情 {self._fmt_delta(detail.get('mood_add', 0))}\n"
+            f"健康 {self._fmt_delta(detail.get('health_add', 0))}\n"
+            f"精力 {self._fmt_delta(detail.get('energy_add', 0))}\n"
+            f"当前余额：{detail['balance']} {coin_name}"
+        )
+        card = self.draw_care_card(
+            "护理完成",
+            cat,
+            subtitle=service.get("name", "护理"),
+            lines=[f"{service.get('name', '护理')} 已完成。", f"冷却：{self._format_duration(detail.get('cooldown', 0))}"],
+            metrics=[
+                ("花费", f"{detail['price']} {coin_name}"),
+                ("饱食度", self._fmt_delta(detail.get("satiety_add", 0))),
+                ("心情", self._fmt_delta(detail.get("mood_add", 0))),
+                ("健康", self._fmt_delta(detail.get("health_add", 0))),
+                ("精力", self._fmt_delta(detail.get("energy_add", 0))),
+                ("余额", f"{detail['balance']} {coin_name}"),
+            ],
+            tag=f"care_{uid}",
         )
         return True, msg, card
 
@@ -1536,18 +2590,22 @@ class CatgirlService:
         def op(root):
             ok, cat, err_msg = self._load_active_cat(root, uid)
             if not ok:
-                return False, err_msg, cat
+                return False, err_msg, cat, 0
+            bag = self._item_quantity_map(root, uid)
+            if not self._consume_bag_item(bag, RENAME_CARD_ID):
+                return False, "改名需要消耗 1 张改名卡。发送「猫娘商店 功能卡」购买，或查看背包确认是否拥有。", cat, 0
             cat["name"] = name
             root.setdefault("catgirls", {})[uid] = cat
-            return True, f"改名成功啦～以后就叫她「{name}」喵。", cat
+            return True, f"改名成功啦～以后就叫她「{name}」喵。\n消耗：改名卡 x1", cat, self._item_count(bag.get(RENAME_CARD_ID))
 
-        ok, msg, cat = self.store.update(op)
+        ok, msg, cat, left = self.store.update(op)
         card = self.draw_care_card(
             "改名完成" if ok else "改名未完成",
             cat,
             lines=[msg],
             metrics=[
                 ("名字", name if ok else "-"),
+                ("改名卡", str(left)),
                 ("阶段", stage_name(cat.get("stage", 0)) if cat else "-"),
             ],
             tag=f"rename_{uid}",
@@ -1586,32 +2644,40 @@ class CatgirlService:
             if not current_cat or not current_cat.get("name"):
                 return False, "你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。", None, None
 
+            self._grant_starter_cards(root, uid)
             balance = int(wallet.get(uid, 0))
-            if balance < appearance_change_price:
+            bag = self._item_quantity_map(root, uid)
+            used_card = self._consume_bag_item(bag, APPEARANCE_CARD_ID)
+            if not used_card and balance < appearance_change_price:
                 return False, f"更换形象需要 {appearance_change_price} {coin_name}，你目前有 {balance} {coin_name}，还不够喔～", current_cat, None
 
             current_cat, _ = normalize_catgirl(current_cat, uid)
             old_image = current_cat.get("image", "")
-            wallet[uid] = balance - appearance_change_price
+            if not used_card:
+                wallet[uid] = balance - appearance_change_price
             current_cat["image"] = str(out)
             cats[uid] = current_cat
-            return True, "", current_cat, old_image
+            return True, "", current_cat, {"old_image": old_image, "used_card": used_card, "balance": int(wallet.get(uid, 0)), "card_left": self._item_count(bag.get(APPEARANCE_CARD_ID))}
 
-        ok, msg, updated_cat, old_image = self.store.update(op)
+        ok, msg, updated_cat, detail = self.store.update(op)
         if not ok:
             out.unlink(missing_ok=True)
             card = self.draw_care_card("形象更换未完成", updated_cat or cat, lines=[msg], tag=f"image_err_{uid}")
             return False, msg, card
 
-        self._delete_old_uploaded_image(old_image)
-        balance = self.economy.get_balance(uid)
-        msg = f"✨ 「{updated_cat['name']}」换好新形象啦～\n花费：{appearance_change_price} {coin_name}\n当前余额：{balance} {coin_name}\n\n当前档案：\n阶段：{stage_name(updated_cat.get('stage', 0))}\n亲密等级：{self._intimacy_display(updated_cat)}\n成长进度：{self._growth_display(updated_cat)}\n心情：{self._fmt_int(updated_cat.get('mood', 0))}\n状态：{status_tag(updated_cat)}"
+        detail = detail if isinstance(detail, dict) else {}
+        used_card = bool(detail.get("used_card"))
+        self._delete_old_uploaded_image(str(detail.get("old_image", "")))
+        balance = int(detail.get("balance", self.economy.get_balance(uid)))
+        cost_line = f"消耗：形象更改卡 x1" if used_card else f"花费：{appearance_change_price} {coin_name}"
+        msg = f"✨ 「{updated_cat['name']}」换好新形象啦～\n{cost_line}\n当前余额：{balance} {coin_name}\n\n当前档案：\n阶段：{stage_name(updated_cat.get('stage', 0))}\n亲密等级：{self._intimacy_display(updated_cat)}\n成长进度：{self._growth_display(updated_cat)}\n心情：{self._fmt_int(updated_cat.get('mood', 0))}\n状态：{status_tag(updated_cat)}"
         card = self.draw_care_card(
             "形象更换完成",
             updated_cat,
             lines=["新形象已经保存。"],
             metrics=[
-                ("花费", f"{appearance_change_price} {coin_name}"),
+                ("消耗", "形象更改卡 x1" if used_card else f"{appearance_change_price} {coin_name}"),
+                ("形象卡", str(detail.get("card_left", 0))),
                 ("余额", f"{balance} {coin_name}"),
                 ("亲密等级", self._intimacy_display(updated_cat)),
                 ("成长进度", self._growth_display(updated_cat)),

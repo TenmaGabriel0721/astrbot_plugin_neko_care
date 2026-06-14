@@ -303,8 +303,19 @@ def normalize_catgirl(cat: Dict, uid: str = "") -> Tuple[Dict, bool]:
     cat.setdefault("care_stats", {})
     if not isinstance(cat.get("care_stats"), dict):
         cat["care_stats"] = {}
-    cat.setdefault("unlocks", [])
-    if not isinstance(cat.get("unlocks"), list):
-        cat["unlocks"] = []
+    unlocks = cat.get("unlocks")
+    if isinstance(unlocks, dict):
+        unlocks.setdefault("work_jobs", [])
+    elif isinstance(unlocks, list):
+        unlocks = {"work_jobs": [], "legacy": [str(x) for x in unlocks]}
+    else:
+        unlocks = {"work_jobs": []}
+    if not isinstance(unlocks.get("work_jobs"), list):
+        unlocks["work_jobs"] = []
+    unlocks["work_jobs"] = [str(x) for x in unlocks.get("work_jobs", []) if str(x).strip()]
+    cat["unlocks"] = unlocks
+    for key in ("buffs", "care_cooldowns", "gift_stats"):
+        if not isinstance(cat.get(key), dict):
+            cat[key] = {}
 
     return cat, cat != before

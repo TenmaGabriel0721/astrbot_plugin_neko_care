@@ -154,7 +154,7 @@ class NekoCarePageApi:
                 return self._error("缺少用户 ID")
 
             def op(root):
-                for key in ("wallet", "sign", "catgirls", "items", "pending_adoptions"):
+                for key in ("wallet", "sign", "catgirls", "items", "item_grants", "pending_adoptions"):
                     section = root.setdefault(key, {})
                     if isinstance(section, dict):
                         section.pop(uid, None)
@@ -176,6 +176,9 @@ class NekoCarePageApi:
         foods = config.get("feed", {}).get("foods", [])
         effects = config.get("interactions", {}).get("effects", [])
         personalities = config.get("personalities", {}).get("effects", [])
+        shop = config.get("shop", {}) if isinstance(config.get("shop"), dict) else {}
+        shop_items = shop.get("items", [])
+        care_services = shop.get("care_services", [])
         balances = [self._int(value, 0, 0, 1_000_000_000) for value in wallet.values()]
         return {
             "wallet_users": len(wallet),
@@ -187,6 +190,10 @@ class NekoCarePageApi:
             "enabled_jobs": len([job for job in jobs if isinstance(job, dict) and job.get("enabled", True)]) if isinstance(jobs, list) else 0,
             "foods": len(foods) if isinstance(foods, list) else 0,
             "enabled_foods": len([food for food in foods if isinstance(food, dict) and food.get("enabled", True)]) if isinstance(foods, list) else 0,
+            "shop_items": len(shop_items) if isinstance(shop_items, list) else 0,
+            "enabled_shop_items": len([item for item in shop_items if isinstance(item, dict) and item.get("enabled", True)]) if isinstance(shop_items, list) else 0,
+            "care_services": len(care_services) if isinstance(care_services, list) else 0,
+            "enabled_care_services": len([service for service in care_services if isinstance(service, dict) and service.get("enabled", True)]) if isinstance(care_services, list) else 0,
             "interactions": len(effects) if isinstance(effects, list) else 0,
             "enabled_interactions": len([row for row in effects if isinstance(row, dict) and row.get("enabled", True)]) if isinstance(effects, list) else 0,
             "personalities": len(personalities) if isinstance(personalities, list) else 0,
@@ -201,7 +208,7 @@ class NekoCarePageApi:
 
     def _all_user_ids(self, root: Dict[str, Any]) -> Iterable[str]:
         users = set()
-        for section_name in ("wallet", "sign", "catgirls", "items", "pending_adoptions"):
+        for section_name in ("wallet", "sign", "catgirls", "items", "item_grants", "pending_adoptions"):
             section = root.get(section_name)
             if isinstance(section, dict):
                 users.update(str(uid) for uid in section.keys() if self._clean_uid(uid))

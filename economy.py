@@ -14,8 +14,8 @@ class EconomyService:
         self,
         store: JsonStore,
         coin_name: str = "宝石",
-        work_min: int = 50,
-        work_max: int = 120,
+        work_min: int = 35,
+        work_max: int = 85,
         runtime_config_provider: Callable[[], Dict] | None = None,
     ):
         self.store = store

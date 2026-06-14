@@ -117,6 +117,8 @@
     renderDailyEvents();
     renderFoods();
     renderJobs();
+    renderShopItems();
+    renderCareServices();
     renderInteractions();
     renderPersonalities();
     syncFields(document);
@@ -220,7 +222,10 @@
         created_at: now,
         last_decay: now,
         care_stats: {},
-        unlocks: [],
+        unlocks: { work_jobs: [] },
+        buffs: {},
+        care_cooldowns: {},
+        gift_stats: {},
       },
       cat_summary: {},
       pending_work_enabled: false,
@@ -465,6 +470,8 @@
       ["钱包用户", summary.wallet_users || 0],
       ["猫娘档案", summary.catgirls || 0],
       ["启用打工地点", `${summary.enabled_jobs || 0}/${summary.jobs || 0}`],
+      ["启用商店道具", `${summary.enabled_shop_items || 0}/${summary.shop_items || 0}`],
+      ["启用护理服务", `${summary.enabled_care_services || 0}/${summary.care_services || 0}`],
       ["启用互动动作", `${summary.enabled_interactions || 0}/${summary.interactions || 0}`],
       ["启用性格效果", `${summary.enabled_personalities || 0}/${summary.personalities || 0}`],
       ["启用食物", `${summary.enabled_foods || 0}/${summary.foods || 0}`],
@@ -490,6 +497,7 @@
       ["互动软上限", Number(care.interaction_daily_limit || 0) ? `${care.interaction_daily_limit} 次/天` : "不限"],
       ["互动冷却", Number(care.interaction_cooldown_seconds || 0) ? `${care.interaction_cooldown_seconds} 秒` : "无"],
       ["高精力打工", `${care.work_high_energy_threshold || 0}+ 精力`],
+      ["礼物软上限", Number(config.shop?.gift_daily_limit || 0) ? `${config.shop.gift_daily_limit} 次/天` : "不限"],
     ];
     document.getElementById("ruleGrid").innerHTML = rules
       .map(([label, value]) => `<div class="rule"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
@@ -543,6 +551,8 @@
             <td><input data-path="work.jobs.${index}.reward_min" type="number" min="1" step="1" class="narrow" /></td>
             <td><input data-path="work.jobs.${index}.reward_max" type="number" min="1" step="1" class="narrow" /></td>
             <td><input data-path="work.jobs.${index}.duration_minutes" type="number" min="1" step="1" class="narrow" /></td>
+            <td><input data-path="work.jobs.${index}.unlock_cost" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="work.jobs.${index}.min_stage" type="number" min="0" max="6" step="1" class="narrow" /></td>
             <td><input data-path="work.jobs.${index}.energy_cost" type="number" min="0" max="100" step="1" class="narrow" /></td>
             <td><input data-path="work.jobs.${index}.satiety_cost" type="number" min="0" max="100" step="1" class="narrow" /></td>
             <td><input data-path="work.jobs.${index}.mood_cost" type="number" min="0" max="100" step="1" class="narrow" /></td>
@@ -557,7 +567,73 @@
       .join("");
     document.getElementById("jobsTable").innerHTML = `
       <table>
-        <thead><tr><th>启用</th><th>ID</th><th>地点</th><th>报酬下限</th><th>报酬上限</th><th>分钟</th><th>精力</th><th>饱食</th><th>心情</th><th>成长下限</th><th>成长上限</th><th>亲密下限</th><th>亲密上限</th><th>完成心情</th><th></th></tr></thead>
+        <thead><tr><th>启用</th><th>ID</th><th>地点</th><th>报酬下限</th><th>报酬上限</th><th>分钟</th><th>解锁费</th><th>阶段</th><th>精力</th><th>饱食</th><th>心情</th><th>成长下限</th><th>成长上限</th><th>亲密下限</th><th>亲密上限</th><th>完成心情</th><th></th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>`;
+  }
+
+  function renderShopItems() {
+    const rows = state.config.shop?.items || [];
+    const body = rows
+      .map(
+        (_, index) => `
+          <tr>
+            <td class="checkbox-cell"><input data-path="shop.items.${index}.enabled" type="checkbox" /></td>
+            <td><input data-path="shop.items.${index}.id" type="text" maxlength="40" /></td>
+            <td><input data-path="shop.items.${index}.name" type="text" maxlength="40" /></td>
+            <td><input data-path="shop.items.${index}.category" type="text" maxlength="20" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.price" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.effect" type="text" maxlength="24" class="narrow" /></td>
+            <td><textarea data-path="shop.items.${index}.description" maxlength="120"></textarea></td>
+            <td><input data-path="shop.items.${index}.satiety_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.mood_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.mood_min" type="number" min="0" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.mood_max" type="number" min="0" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.health_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.energy_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.growth_min" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.growth_max" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.intimacy_min" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.intimacy_max" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.multiplier" type="number" min="0" step="0.01" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.daily_limit" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.items.${index}.weekly_limit" type="number" min="0" step="1" class="narrow" /></td>
+            <td><button class="icon-button" data-action="remove" data-list="shop.items" data-index="${index}" type="button" title="删除">X</button></td>
+          </tr>`
+      )
+      .join("");
+    document.getElementById("shopItemsTable").innerHTML = `
+      <table>
+        <thead><tr><th>启用</th><th>ID</th><th>名称</th><th>分类</th><th>价格</th><th>效果</th><th>描述</th><th>饱食</th><th>心情</th><th>礼物心情下限</th><th>礼物心情上限</th><th>健康</th><th>精力</th><th>成长下限</th><th>成长上限</th><th>亲密下限</th><th>亲密上限</th><th>倍率</th><th>日限</th><th>周限</th><th></th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>`;
+  }
+
+  function renderCareServices() {
+    const rows = state.config.shop?.care_services || [];
+    const body = rows
+      .map(
+        (_, index) => `
+          <tr>
+            <td class="checkbox-cell"><input data-path="shop.care_services.${index}.enabled" type="checkbox" /></td>
+            <td><input data-path="shop.care_services.${index}.id" type="text" maxlength="40" /></td>
+            <td><input data-path="shop.care_services.${index}.name" type="text" maxlength="40" /></td>
+            <td><input data-path="shop.care_services.${index}.category" type="text" maxlength="20" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.base_price" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.price_per_missing" type="number" min="0" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.target_health" type="number" min="0" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.satiety_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.mood_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.health_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.energy_add" type="number" min="-100" max="100" step="1" class="narrow" /></td>
+            <td><input data-path="shop.care_services.${index}.cooldown_seconds" type="number" min="0" step="1" class="narrow" /></td>
+            <td><button class="icon-button" data-action="remove" data-list="shop.care_services" data-index="${index}" type="button" title="删除">X</button></td>
+          </tr>`
+      )
+      .join("");
+    document.getElementById("careServicesTable").innerHTML = `
+      <table>
+        <thead><tr><th>启用</th><th>ID</th><th>名称</th><th>分类</th><th>基础价</th><th>缺失价</th><th>目标健康</th><th>饱食</th><th>心情</th><th>健康</th><th>精力</th><th>冷却秒</th><th></th></tr></thead>
         <tbody>${body}</tbody>
       </table>`;
   }
@@ -659,7 +735,7 @@
   });
 
   document.getElementById("addFood").addEventListener("click", () => {
-    ensureArray("feed.foods").push({ name: "新食物", cost_min: 10, cost_max: 20, verb: "吃", enabled: true });
+    ensureArray("feed.foods").push({ name: "新食物", cost_min: 22, cost_max: 40, verb: "吃", enabled: true });
     renderAll();
     markDirty();
   });
@@ -669,17 +745,67 @@
     ensureArray("work.jobs").push({
       id,
       name: "新打工地点",
-      reward_min: 100,
-      reward_max: 180,
+      reward_min: 80,
+      reward_max: 150,
       duration_minutes: 45,
-      energy_cost: 20,
-      satiety_cost: 8,
+      energy_cost: 18,
+      satiety_cost: 7,
       mood_cost: 2,
-      growth_min: 5,
-      growth_max: 10,
+      growth_min: 4,
+      growth_max: 7,
       intimacy_min: 1,
-      intimacy_max: 3,
+      intimacy_max: 2,
       mood_reward: 1,
+      unlock_cost: 0,
+      min_stage: 0,
+      enabled: true,
+    });
+    renderAll();
+    markDirty();
+  });
+
+  document.getElementById("addShopItem").addEventListener("click", () => {
+    const id = `item_${Date.now()}`;
+    ensureArray("shop.items").push({
+      id,
+      name: "新道具",
+      category: "道具",
+      price: 120,
+      description: "自定义商店道具。",
+      effect: "instant",
+      satiety_add: 0,
+      mood_add: 0,
+      mood_min: 0,
+      mood_max: 0,
+      health_add: 0,
+      energy_add: 0,
+      growth_min: 0,
+      growth_max: 0,
+      intimacy_min: 0,
+      intimacy_max: 0,
+      multiplier: 1,
+      daily_limit: 0,
+      weekly_limit: 0,
+      enabled: true,
+    });
+    renderAll();
+    markDirty();
+  });
+
+  document.getElementById("addCareService").addEventListener("click", () => {
+    const id = `care_${Date.now()}`;
+    ensureArray("shop.care_services").push({
+      id,
+      name: "新护理服务",
+      category: "护理",
+      base_price: 180,
+      price_per_missing: 0,
+      target_health: 0,
+      satiety_add: 0,
+      mood_add: 6,
+      health_add: 0,
+      energy_add: 20,
+      cooldown_seconds: 28800,
       enabled: true,
     });
     renderAll();
@@ -695,7 +821,7 @@
       intimacy_min: 2,
       intimacy_max: 5,
       growth_min: 2,
-      growth_max: 5,
+      growth_max: 4,
       energy_cost: 0,
       min_stage: 0,
       enabled: true,
@@ -760,7 +886,10 @@
         created_at: now,
         last_decay: now,
         care_stats: {},
-        unlocks: [],
+        unlocks: { work_jobs: [] },
+        buffs: {},
+        care_cooldowns: {},
+        gift_stats: {},
       };
     }
     return state.currentUser.catgirl || null;
@@ -776,8 +905,8 @@
         started_at: now,
         finish_at: now + 2700,
         duration: 2700,
-        reward: 120,
-        growth_add: 5,
+        reward: 80,
+        growth_add: 4,
         intimacy_add: 1,
         mood_reward: 1,
       };
