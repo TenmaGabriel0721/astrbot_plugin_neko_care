@@ -18,6 +18,16 @@ from .catgirl_schema import (
 
 PLUGIN_NAME = "astrbot_plugin_neko_care"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
+USER_STORE_SECTIONS = (
+    "wallet",
+    "sign",
+    "catgirls",
+    "items",
+    "item_grants",
+    "pending_adoptions",
+    "runaway_notices",
+    "runaway_catgirls",
+)
 
 
 class NekoCarePageApi:
@@ -154,7 +164,7 @@ class NekoCarePageApi:
                 return self._error("缺少用户 ID")
 
             def op(root):
-                for key in ("wallet", "sign", "catgirls", "items", "item_grants", "pending_adoptions"):
+                for key in USER_STORE_SECTIONS:
                     section = root.setdefault(key, {})
                     if isinstance(section, dict):
                         section.pop(uid, None)
@@ -208,7 +218,7 @@ class NekoCarePageApi:
 
     def _all_user_ids(self, root: Dict[str, Any]) -> Iterable[str]:
         users = set()
-        for section_name in ("wallet", "sign", "catgirls", "items", "item_grants", "pending_adoptions"):
+        for section_name in USER_STORE_SECTIONS:
             section = root.get(section_name)
             if isinstance(section, dict):
                 users.update(str(uid) for uid in section.keys() if self._clean_uid(uid))
