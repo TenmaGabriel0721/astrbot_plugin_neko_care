@@ -578,6 +578,51 @@ td .narrow {
   background: #fff6f5;
 }
 
+/* 自定义确认对话框（替代 window.confirm） */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(18, 32, 55, 0.35);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.confirm-overlay.open {
+  opacity: 1;
+}
+
+.confirm-card {
+  max-width: 400px;
+  width: calc(100vw - 40px);
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 24px 48px rgba(18, 32, 55, 0.15);
+  transform: scale(0.92);
+  transition: transform 0.2s ease;
+}
+
+.confirm-overlay.open .confirm-card {
+  transform: scale(1);
+}
+
+.confirm-message {
+  margin: 0 0 20px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 @media (max-width: 1100px) {
   .metrics,
   .rule-grid,

@@ -91,7 +91,7 @@
   }
 
   async function resetConfig() {
-    if (!window.confirm("恢复默认运行参数？")) return;
+    if (!await confirmDialog("恢复默认运行参数？")) return;
     setStatus("重置中", false);
     resetBtn.disabled = true;
     try {
@@ -181,7 +181,7 @@
 
   async function selectUser(uid) {
     if (!uid) return;
-    if (state.userDirty && !window.confirm("当前用户数据还没保存，切换后会丢弃未保存修改。继续切换？")) return;
+    if (state.userDirty && !await confirmDialog("当前用户数据还没保存，切换后会丢弃未保存修改。继续切换？")) return;
     try {
       const payload = await apiGet("users/detail", { uid });
       state.currentUser = payload.user;
@@ -195,8 +195,8 @@
     }
   }
 
-  function createUserDraft() {
-    if (state.userDirty && !window.confirm("当前用户数据还没保存，创建新用户会丢弃未保存修改。继续？")) return;
+  async function createUserDraft() {
+    if (state.userDirty && !await confirmDialog("当前用户数据还没保存，创建新用户会丢弃未保存修改。继续？")) return;
     const now = Math.floor(Date.now() / 1000);
     state.currentUser = {
       uid: "",
@@ -412,14 +412,24 @@
   }
 
   async function deleteCurrentUser() {
-    const uid = state.currentUser?.uid;
+    const uidInput = document.getElementById("editUid");
+    const uid = String(uidInput?.value || state.currentUser?.uid || "").trim();
     if (!uid) {
       state.currentUser = null;
       state.userDirty = false;
       renderUserEditor();
+      showToast("没有可删除的用户数据");
       return;
     }
-    if (!window.confirm(`确定删除用户 ${uid} 的养猫插件数据？`)) return;
+    const exists = state.users.some((row) => row.uid === uid);
+    if (!exists) {
+      state.currentUser = null;
+      state.userDirty = false;
+      renderUserEditor();
+      showToast("未保存的用户草稿已关闭");
+      return;
+    }
+    if (!await confirmDialog(`确定删除用户 ${uid} 的养猫插件数据？`)) return;
     deleteUserBtn.disabled = true;
     try {
       const payload = await apiPost("users/delete", { uid });
@@ -717,7 +727,7 @@
     if (!button) return;
     const action = button.dataset.action;
     if (action === "select-user") {
-      selectUser(button.dataset.uid);
+      selectUser(button.dataset.uid).catch((e) => showToast(e.message || "操作失败", true));
       return;
     }
     if (!state.config) return;
@@ -1002,6 +1012,61 @@
     toast.classList.add("show");
     window.clearTimeout(showToast.timer);
     showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+  }
+
+  // 内联确认对话框（替代 window.confirm，因 iframe sandbox 缺少 allow-modals）
+  function confirmDialog(message) {
+    return new Promise((resolve) => {
+      const existing = document.querySelector(".confirm-overlay");
+      if (existing) existing.remove();
+
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+
+      const card = document.createElement("div");
+      card.className = "confirm-card";
+
+      const msg = document.createElement("p");
+      msg.className = "confirm-message";
+      msg.textContent = message;
+
+      const buttons = document.createElement("div");
+      buttons.className = "confirm-buttons";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "ghost-button";
+      cancelBtn.textContent = "取消";
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.className = "danger-button";
+      okBtn.textContent = "确定";
+
+      buttons.appendChild(cancelBtn);
+      buttons.appendChild(okBtn);
+      card.appendChild(msg);
+      card.appendChild(buttons);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+
+      // 动画入场
+      requestAnimationFrame(() => overlay.classList.add("open"));
+
+      const closeWith = (result) => {
+        overlay.classList.remove("open");
+        overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
+        // 没有 transitionend 时的回退
+        setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 260);
+        resolve(result);
+      };
+
+      okBtn.addEventListener("click", () => closeWith(true));
+      cancelBtn.addEventListener("click", () => closeWith(false));
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closeWith(false);
+      });
+    });
   }
 
   function formatHours(minutes) {
