@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Callable, Dict, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 from .storage import JsonStore
 from .economy import EconomyService
@@ -131,7 +131,7 @@ class CatgirlService:
             "health_recovery_per_minute": max(0.0, float(care.get("health_recovery_per_day", 1.5))) / (24 * 60),
             "health_hungry_satiety_threshold": float(care.get("health_hungry_satiety_threshold", 20)),
             "health_low_mood_threshold": float(care.get("health_low_mood_threshold", 30)),
-            "runaway_after_zero_seconds": max(1, int(float(care.get("runaway_after_zero_hours", 24)) * 60 * 60)),
+            "runaway_after_zero_seconds": max(1, int(float(care.get("runaway_after_zero_hours", 168)) * 60 * 60)),
             "interaction_daily_limit": max(0, int(care.get("interaction_daily_limit", 5))),
             "interaction_cooldown_seconds": max(0, int(care.get("interaction_cooldown_seconds", 300))),
             "interaction_energy_cost": max(0, int(care.get("interaction_energy_cost", 4))),
@@ -375,6 +375,7 @@ class CatgirlService:
             first = current.get("first")
             if isinstance(first, dict):
                 cats[uid] = self._finish_adoption_data(str(current.get("gid", "")), uid, first)
+                root.setdefault("runaway_catgirls", {}).pop(uid, None)
                 self._grant_starter_cards(root, uid)
             pending_adoptions.pop(uid, None)
 
@@ -395,6 +396,14 @@ class CatgirlService:
             if isinstance(cat, dict):
                 cat, changed = normalize_catgirl(cat, uid)
                 if changed:
+                    cats[uid] = cat
+            if cat and cat.get("name"):
+                cat, runaway = self._apply_decay(cat)
+                if runaway:
+                    cats.pop(uid, None)
+                    self._set_runaway_notice(root, uid, cat)
+                    cat = None
+                else:
                     cats[uid] = cat
             if cat and cat.get("name"):
                 return False, "already", f"你已经有猫娘「{cat['name']}」啦，要好好疼她喔～", None, None
@@ -534,6 +543,7 @@ class CatgirlService:
 
             selected = self._finish_adoption_data(gid, uid, selected)
             cats[uid] = selected
+            root.setdefault("runaway_catgirls", {}).pop(uid, None)
             granted = self._grant_starter_cards(root, uid)
             pending_adoptions.pop(uid, None)
             return True, f"收养完成啦～\n猫娘「{selected.get('name', '猫娘')}」轻轻牵住了你的手。\n从今天开始，你们的羁绊会在每一次陪伴里慢慢成长 ฅ^•ﻌ•^ฅ{self._starter_card_notice(granted)}", selected
@@ -629,10 +639,14 @@ class CatgirlService:
     def _runaway_message(self, cat: Dict) -> str:
         return (
             f"「{cat.get('name', '猫娘')}」已经饿着肚子太久了，留下了一张小纸条后离家出走了。\n"
-            "她的档案已清除。想重新开始的话，可以再次发送「请赐我一只可爱猫娘吧」。"
+            "她的档案会暂时保留。你可以在商店购买并使用「命运的红线」召回她，也可以再次发送「请赐我一只可爱猫娘吧」重新遇见新的猫娘。"
         )
 
     def _set_runaway_notice(self, root: Dict, uid: str, cat: Dict) -> str:
+        cat = dict(cat or {})
+        cat["runaway_at"] = now_ts()
+        cat["is_runaway"] = True
+        root.setdefault("runaway_catgirls", {})[uid] = cat
         message = self._runaway_message(cat)
         root.setdefault("runaway_notices", {})[uid] = {
             "message": message,
@@ -837,6 +851,207 @@ class CatgirlService:
             font = self._font(size)
         return font
 
+    def _lerp_color(self, a, b, t: float):
+        t = max(0.0, min(1.0, float(t)))
+        return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+
+    def _make_linear_gradient(self, size, stops):
+        w, h = size
+        img = Image.new("RGB", size)
+        px = img.load()
+        stops = sorted((max(0.0, min(1.0, float(pos))), tuple(color)) for pos, color in stops)
+        if not stops:
+            return img
+        for x in range(w):
+            t = x / max(1, w - 1)
+            left = stops[0]
+            right = stops[-1]
+            for idx in range(len(stops) - 1):
+                if stops[idx][0] <= t <= stops[idx + 1][0]:
+                    left, right = stops[idx], stops[idx + 1]
+                    break
+            span = max(0.0001, right[0] - left[0])
+            color = self._lerp_color(left[1], right[1], (t - left[0]) / span)
+            for y in range(h):
+                px[x, y] = color
+        return img
+
+    def _make_card_background(self, size):
+        w, h = size
+        bg = self._make_linear_gradient(
+            size,
+            [
+                (0.00, (218, 248, 255)),
+                (0.42, (248, 253, 255)),
+                (0.70, (255, 247, 238)),
+                (1.00, (255, 226, 220)),
+            ],
+        ).convert("RGBA")
+        glow = Image.new("RGBA", size, (255, 255, 255, 0))
+        gd = ImageDraw.Draw(glow)
+        gd.ellipse((-160, 90, 360, 610), fill=(120, 213, 239, 72))
+        gd.ellipse((w - 430, -170, w + 150, 360), fill=(255, 182, 170, 70))
+        gd.ellipse((w - 430, h - 360, w + 180, h + 180), fill=(255, 202, 126, 52))
+        return Image.alpha_composite(bg, glow.filter(ImageFilter.GaussianBlur(52))).convert("RGB")
+
+    def _rounded_mask(self, size, radius: int):
+        mask = Image.new("L", size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, size[0], size[1]), radius=radius, fill=255)
+        return mask
+
+    def _paste_round(self, canvas: Image.Image, img: Image.Image, box, radius: int):
+        x, y, w, h = box
+        mask = self._rounded_mask((w, h), radius)
+        canvas.paste(img.convert("RGBA"), (x, y), mask)
+
+    def _draw_round_panel(self, canvas: Image.Image, box, radius: int, fill, outline=None, width: int = 1, shadow=True):
+        x1, y1, x2, y2 = [int(v) for v in box]
+        if shadow:
+            shadow_img = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            sd = ImageDraw.Draw(shadow_img)
+            sd.rounded_rectangle((x1 + 5, y1 + 8, x2 + 5, y2 + 8), radius=radius, fill=(74, 122, 154, 28))
+            canvas.alpha_composite(shadow_img.filter(ImageFilter.GaussianBlur(12)))
+        d = ImageDraw.Draw(canvas, "RGBA")
+        d.rounded_rectangle((x1, y1, x2, y2), radius=radius, fill=fill, outline=outline, width=width)
+
+    def _metric_palette(self, label: str, idx: int = 0):
+        palettes = [
+            ((255, 190, 113), (255, 137, 22)),
+            ((244, 127, 179), (211, 79, 154)),
+            ((128, 226, 150), (69, 193, 124)),
+            ((104, 201, 236), (58, 159, 217)),
+            ((248, 115, 101), (229, 77, 61)),
+            ((183, 121, 238), (135, 96, 219)),
+            ((120, 190, 218), (255, 143, 23)),
+            ((172, 177, 182), (132, 139, 145)),
+        ]
+        text = str(label)
+        preferred = {
+            "饱食": 0,
+            "心情": 1,
+            "健康": 2,
+            "精力": 3,
+            "亲密": 4,
+            "成长": 5,
+            "效率": 6,
+            "报酬": 6,
+            "获得": 6,
+            "余额": 6,
+            "体重": 7,
+            "耗时": 3,
+            "剩余": 3,
+            "档位": 5,
+            "加成": 5,
+        }
+        for key, value in preferred.items():
+            if key in text:
+                return palettes[value]
+        return palettes[idx % len(palettes)]
+
+    def _metric_progress(self, label: str, value: str, cat: Optional[Dict]):
+        raw = str(value or "")
+        try:
+            first_num = re.search(r"[-+]?\d+(?:\.\d+)?", raw)
+            number = float(first_num.group(0)) if first_num else 0.0
+        except Exception:
+            first_num = None
+            number = 0.0
+        if not first_num and raw:
+            return 0.72
+        if "%" in raw:
+            return clamp(number, 0, 100) / 100
+        label = str(label or "")
+        if any(key in label for key in ("饱食", "心情", "健康", "精力")) and cat:
+            field = {"饱食": "satiety", "心情": "mood", "健康": "health", "精力": "energy"}
+            for key, attr in field.items():
+                if key in label:
+                    try:
+                        return clamp(float(cat.get(attr, 0) or 0), 0, 100) / 100
+                    except Exception:
+                        return 0
+        if "成长" in label and cat:
+            try:
+                return clamp(float(self._growth_display(cat).rstrip("%")), 0, 100) / 100
+            except Exception:
+                pass
+        if raw.startswith(("+", "-")):
+            return clamp(abs(number), 0, 30) / 30
+        if "Lv." in raw:
+            return clamp(number, 1, 20) / 20
+        return clamp(abs(number), 0, 100) / 100
+
+    def _draw_gradient_bar(self, canvas: Image.Image, box, colors, progress: float, text: str = "", font=None):
+        x1, y1, x2, y2 = [int(v) for v in box]
+        radius = max(4, (y2 - y1) // 2)
+        d = ImageDraw.Draw(canvas, "RGBA")
+        bg = self._make_linear_gradient(
+            (max(1, x2 - x1), max(1, y2 - y1)),
+            [
+                (0, self._lerp_color(colors[0], (255, 255, 255), 0.76)),
+                (0.62, self._lerp_color(colors[1], (255, 255, 255), 0.82)),
+                (1, self._lerp_color(colors[1], (255, 255, 255), 0.88)),
+            ],
+        ).convert("RGBA")
+        bg.putalpha(135)
+        bg_mask = self._rounded_mask((x2 - x1, y2 - y1), radius)
+        canvas.paste(bg, (x1, y1), bg_mask)
+        progress = max(0.04, min(1.0, float(progress or 0)))
+        fill_w = max(radius * 2, int((x2 - x1) * progress))
+        grad = self._make_linear_gradient((fill_w, y2 - y1), [(0, colors[0]), (0.62, colors[1]), (1, self._lerp_color(colors[1], (255, 255, 255), 0.32))]).convert("RGBA")
+        mask = self._rounded_mask((fill_w, y2 - y1), radius)
+        canvas.paste(grad, (x1, y1), mask)
+        if text and font:
+            text_w = self._text_size(d, text, font)[0]
+            tx = min(x1 + fill_w - 18, x2 - 18)
+            if tx - text_w < x1 + 14:
+                tx = x1 + fill_w // 2
+                anchor = "mm"
+            else:
+                anchor = "rm"
+            d.text((tx, y1 + (y2 - y1) // 2 + 1), text, font=font, fill=(255, 255, 255, 245), anchor=anchor)
+
+    def _draw_diamond_icon(self, draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int):
+        w = int(size)
+        h = int(size * 0.9)
+        top_y = cy - h // 2
+        mid_y = top_y + int(h * 0.36)
+        bottom_y = cy + h // 2
+        left = cx - w // 2
+        right = cx + w // 2
+        pts = [
+            (cx - int(w * 0.28), top_y),
+            (cx + int(w * 0.28), top_y),
+            (right, mid_y),
+            (cx, bottom_y),
+            (left, mid_y),
+        ]
+        draw.polygon(pts, fill=(66, 191, 238, 255), outline=(255, 255, 255, 245))
+        draw.polygon([(left, mid_y), (cx - int(w * 0.28), top_y), (cx, mid_y)], fill=(255, 225, 102, 230))
+        draw.polygon([(cx - int(w * 0.28), top_y), (cx + int(w * 0.28), top_y), (cx, mid_y)], fill=(255, 148, 178, 230))
+        draw.polygon([(cx + int(w * 0.28), top_y), (right, mid_y), (cx, mid_y)], fill=(111, 213, 238, 230))
+        draw.polygon([(left, mid_y), (cx, mid_y), (cx, bottom_y)], fill=(83, 213, 188, 230))
+        draw.polygon([(right, mid_y), (cx, mid_y), (cx, bottom_y)], fill=(147, 111, 232, 230))
+        draw.line(((left, mid_y), (right, mid_y)), fill=(255, 255, 255, 190), width=1)
+        draw.line(((cx, mid_y), (cx, bottom_y)), fill=(255, 255, 255, 160), width=1)
+        draw.line(((cx - int(w * 0.28), top_y), (cx, mid_y), (cx + int(w * 0.28), top_y)), fill=(255, 255, 255, 145), width=1)
+
+    def _draw_gradient_panel(self, canvas: Image.Image, box, radius: int, alpha: int = 77, outline=None, width: int = 1):
+        x1, y1, x2, y2 = [int(v) for v in box]
+        panel = self._make_card_background((max(1, x2 - x1), max(1, y2 - y1))).convert("RGBA")
+        panel.putalpha(max(0, min(255, int(alpha))))
+        mask = self._rounded_mask((x2 - x1, y2 - y1), radius)
+        canvas.paste(panel, (x1, y1), mask)
+        if outline:
+            ImageDraw.Draw(canvas, "RGBA").rounded_rectangle((x1, y1, x2, y2), radius=radius, outline=outline, width=width)
+
+    def _contain_in_frame(self, img: Image.Image, w: int, h: int, fill=(255, 255, 255)):
+        img = ImageOps.contain(img, (w, h), method=Image.LANCZOS)
+        frame = Image.new("RGB", (w, h), fill)
+        x = (w - img.width) // 2
+        y = (h - img.height) // 2
+        frame.paste(img, (x, y))
+        return frame
+
     def draw_care_card(
         self,
         title: str,
@@ -849,112 +1064,164 @@ class CatgirlService:
         tag: str = "care",
     ) -> Path:
         lines = [str(x) for x in (lines or []) if str(x).strip()]
-        metrics = [(str(k), str(v)) for k, v in (metrics or [])]
-        width = 980
-        padding = 42
-        header_h = 112
-        image_w, image_h = 300, 360
-        line_h = 36
+        raw_metrics = [(str(k), str(v)) for k, v in (metrics or [])]
+        balance_metric = None
+        metrics = []
+        for item in raw_metrics:
+            if item[0] == "余额" and balance_metric is None:
+                balance_metric = item
+            else:
+                metrics.append(item)
+        width = 780
+        padding = 20
+        header_h = 105
+        panel_gap = 24
+        image_w, image_h = 455, 635
+        line_h = 34
         title_font = self._font(48)
-        sub_font = self._font(26)
-        name_font = self._font(34)
+        sub_font = self._font(25)
+        name_font = self._font(35)
         text_font = self._font(25)
-        small_font = self._font(22)
-        metric_font = self._font(24)
-        metric_value_font = self._font(30)
+        small_font = self._font(23)
+        metric_font = self._font(25)
 
         card_w = width - padding * 2
-        img_x = padding + 30
-        text_x = img_x + image_w + 32
-        text_w = padding + card_w - text_x - 30
+        img_x = padding + 12
+        text_x = img_x + image_w + panel_gap
+        text_w = width - padding - 12 - text_x
         measure = ImageDraw.Draw(Image.new("RGB", (width, 1), "white"))
-        wrapped_line_count = sum(len(self._wrap_by_width(measure, line, text_font, text_w, 2)) for line in lines)
-        metrics_rows = math.ceil(len(metrics) / 2) if metrics else 0
-        cell_h = 60
-        cell_gap = 14
-        metric_grid_h = metrics_rows * cell_h + max(0, metrics_rows - 1) * cell_gap
-        text_intro_h = 90 if cat else 0
-        details_h = text_intro_h + wrapped_line_count * line_h
-        grid_y_rel = max(32 + details_h + 20, 210) if metrics else 32 + details_h
-        metrics_h = metric_grid_h if metrics else 0
-        footer_lines = self._wrap_by_width(measure, footer, small_font, card_w - 60, 2) if footer else []
-        footer_h = len(footer_lines) * 28 + 46 if footer_lines else 0
-        right_content_h = grid_y_rel + metrics_h + footer_h + 28
-        image_content_h = 32 + image_h + footer_h + 28
-        content_h = max(image_content_h, right_content_h)
+        left_info_lines = []
+        if cat:
+            profile = f"{cat.get('personality', '温柔')}｜{status_tag(cat)}｜羁绊 {bond_score(cat)}"
+            left_info_lines = [profile]
+            left_info_lines.extend(lines)
+        metric_h = 70
+        metric_gap = 13
+        metrics_h = len(metrics) * metric_h + max(0, len(metrics) - 1) * metric_gap
+        balance_h = 96 if balance_metric else 0
+        balance_gap = 22 if balance_metric and metrics else 0
+        footer_lines = self._wrap_by_width(measure, footer, small_font, card_w - 64, 2) if footer else []
+        footer_h = len(footer_lines) * 30 + 64 if footer_lines else 0
+        left_text_w = card_w - 40
+        left_wrapped = []
+        for idx, line in enumerate(left_info_lines):
+            font = small_font if idx == 0 else text_font
+            left_wrapped.extend((idx, text) for text in self._wrap_by_width(measure, line, font, left_text_w, 50))
+        name_lines = self._wrap_by_width(measure, f"{cat.get('name', '猫娘')}｜{stage_name(cat.get('stage', 0))}", name_font, left_text_w, 10) if cat else []
+        left_text_h = len(name_lines) * 42 + (8 if name_lines else 0) + len(left_wrapped) * line_h + 30
+        left_h = 32 + image_h + 40 + left_text_h + footer_h
+        right_h = 32 + metrics_h + balance_gap + balance_h + footer_h + 24
+        content_h = max(left_h, right_h)
         height = padding + header_h + content_h + padding
 
-        canvas = Image.new("RGB", (width, height), "white")
-        draw = ImageDraw.Draw(canvas)
+        canvas = self._make_card_background((width, height)).convert("RGBA")
+        draw = ImageDraw.Draw(canvas, "RGBA")
 
-        orange = (255, 140, 0)
-        blue = (0, 191, 255)
-        dark = (40, 40, 40)
-        muted = (90, 90, 90)
-        soft = (246, 250, 255)
+        orange = (255, 139, 24)
+        dark = (18, 22, 26)
+        muted = (74, 82, 88)
 
-        draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
+        draw.text((width // 2, padding + 6), title, font=title_font, fill=orange, anchor="ma")
         if subtitle:
-            draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
+            draw.text((width // 2, padding + 64), subtitle, font=sub_font, fill=(20, 24, 28, 245), anchor="ma")
 
         card_x, card_y = padding, padding + header_h
         card_h = content_h
-        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + card_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+        self._draw_gradient_panel(
+            canvas,
+            (card_x, card_y, card_x + card_w, card_y + card_h),
+            radius=24,
+            alpha=77,
+            outline=(255, 255, 255, 210),
+            width=3,
+        )
 
         img_y = card_y + 32
         img_source = image_path or (self.image_path(cat) if cat else None)
         if img_source and Path(img_source).exists():
             try:
                 img = Image.open(img_source).convert("RGB")
-                img = self._cover(img, image_w, image_h)
-                canvas.paste(img, (img_x, img_y))
+                img = self._contain_in_frame(img, image_w, image_h, fill=(255, 255, 255))
+                self._paste_round(canvas, img, (img_x, img_y, image_w, image_h), 18)
             except Exception:
                 self._draw_no_image(draw, img_x, img_y, image_w, image_h)
         else:
             self._draw_no_image(draw, img_x, img_y, image_w, image_h)
 
-        y = card_y + 32
+        left_y = img_y + image_h + 40
         if cat:
-            name = self._truncate_text(draw, f"{cat.get('name', '猫娘')}｜{stage_name(cat.get('stage', 0))}", name_font, text_w)
-            draw.text((text_x, y), name, font=name_font, fill=dark)
-            y += 46
-            profile = f"{cat.get('personality', '温柔')}｜{status_tag(cat)}｜羁绊 {bond_score(cat)}"
-            draw.text((text_x, y), self._truncate_text(draw, profile, small_font, text_w), font=small_font, fill=orange)
-            y += 44
-
-        for line in lines:
-            for wrapped in self._wrap_by_width(draw, line, text_font, text_w, 2):
-                draw.text((text_x, y), wrapped, font=text_font, fill=dark)
-                y += line_h
+            for name_line in name_lines:
+                draw.text((img_x + 8, left_y), name_line, font=name_font, fill=dark)
+                left_y += 42
+            left_y += 8
+            left_colors = [
+                (255, 139, 24, 245),
+                (214, 82, 152, 240),
+                (55, 153, 211, 240),
+                (74, 185, 118, 240),
+                (135, 96, 219, 240),
+            ]
+            for idx, text in left_wrapped:
+                font = small_font if idx == 0 else text_font
+                draw.text((img_x + 8, left_y), text, font=font, fill=left_colors[idx % len(left_colors)])
+                left_y += line_h
 
         if metrics:
-            grid_x = text_x
-            grid_y = max(y + 20, card_y + 210)
-            cell_w = (text_w - 16) // 2
+            y = card_y + 32
             for idx, (label, value) in enumerate(metrics):
-                col = idx % 2
-                row = idx // 2
-                x = grid_x + col * (cell_w + 16)
-                yy = grid_y + row * (cell_h + cell_gap)
-                mid_y = yy + cell_h // 2
-                label_w = min(int(cell_w * 0.44), max(68, self._text_size(draw, label, metric_font)[0] + 6))
-                value_w = max(60, cell_w - label_w - 42)
-                value_font = self._fit_font(draw, value, 30, value_w)
-                draw.rounded_rectangle((x, yy, x + cell_w, yy + cell_h), radius=10, fill=soft, outline=(220, 238, 248), width=2)
-                draw.text((x + 14, mid_y), self._truncate_text(draw, label, metric_font, label_w), font=metric_font, fill=muted, anchor="lm")
-                draw.text((x + cell_w - 14, mid_y), self._truncate_text(draw, value, value_font, value_w), font=value_font, fill=orange, anchor="rm")
+                colors = self._metric_palette(label, idx)
+                progress = 1.0 if label == "体重" else self._metric_progress(label, value, cat)
+                value_font = self._fit_font(draw, value, 28, 112, min_size=21)
+                draw.text((text_x + 4, y), self._truncate_text(draw, label, metric_font, 112), font=metric_font, fill=dark)
+                draw.text((text_x + text_w - 4, y + 1), self._truncate_text(draw, value, value_font, 112), font=value_font, fill=colors[1], anchor="ra")
+                bar_y = y + 35
+                bar_w = max(96, int(text_w * 0.5))
+                bar_x2 = text_x + text_w - 4
+                self._draw_gradient_bar(
+                    canvas,
+                    (bar_x2 - bar_w, bar_y, bar_x2, bar_y + 24),
+                    colors,
+                    progress,
+                )
+                y += metric_h + metric_gap
+        else:
+            y = card_y + 32
+
+        if balance_metric:
+            y += balance_gap
+            label, value = balance_metric
+            box_x1 = text_x
+            box_y1 = y
+            box_x2 = text_x + text_w
+            box_y2 = y + balance_h
+            self._draw_round_panel(
+                canvas,
+                (box_x1, box_y1, box_x2, box_y2),
+                radius=18,
+                fill=(255, 255, 255, 218),
+                outline=(255, 255, 255, 235),
+                width=2,
+                shadow=False,
+            )
+            value_font = self._fit_font(draw, value, 29, text_w - 58, min_size=19)
+            draw.text((box_x1 + 16, box_y1 + 24), label, font=self._font(27), fill=orange, anchor="lm")
+            icon_x = box_x1 + 30
+            value_y = box_y1 + 66
+            self._draw_diamond_icon(draw, icon_x, value_y, 26)
+            draw.text((box_x2 - 12, value_y + 1), value, font=value_font, fill=orange, anchor="rm")
+            y = box_y2
 
         if footer:
-            footer_lines = self._wrap_by_width(draw, footer, small_font, card_w - 60, 2)
-            fy = card_y + card_h - 34 - (len(footer_lines) - 1) * 28
+            footer_lines = self._wrap_by_width(draw, footer, small_font, card_w - 64, 2)
+            fy = card_y + card_h - 34 - (len(footer_lines) - 1) * 30
             for footer_line in footer_lines:
                 draw.text((card_x + card_w // 2, fy), footer_line, font=small_font, fill=muted, anchor="ma")
-                fy += 28
+                fy += 30
 
         safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "care"))[:40] or "care"
         out = self.cache_dir / f"cat_card_{safe_tag}_{int(time.time() * 1000)}.png"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        canvas.save(out, "PNG")
+        canvas.convert("RGB").save(out, "PNG")
         return out
 
     def draw_info_card(
@@ -1126,21 +1393,27 @@ class CatgirlService:
         content_h = 32 + metrics_h + top_gap + sections_h + footer_h + 32
         height = padding + header_h + content_h + padding
 
-        canvas = Image.new("RGB", (width, height), "white")
-        draw = ImageDraw.Draw(canvas)
+        canvas = self._make_card_background((width, height)).convert("RGBA")
+        draw = ImageDraw.Draw(canvas, "RGBA")
         orange = (255, 140, 0)
-        blue = (0, 191, 255)
         dark = (40, 40, 40)
         muted = (90, 90, 90)
-        soft = (246, 250, 255)
-        line = (220, 238, 248)
+        soft = (255, 255, 255, 132)
+        line = (255, 255, 255, 205)
 
         draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
         if subtitle:
             draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
 
         card_x, card_y = padding, padding + header_h
-        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + content_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+        self._draw_gradient_panel(
+            canvas,
+            (card_x, card_y, card_x + card_w, card_y + content_h),
+            radius=22,
+            alpha=88,
+            outline=(255, 255, 255, 215),
+            width=3,
+        )
         y = card_y + 32
 
         if metrics:
@@ -1163,9 +1436,16 @@ class CatgirlService:
             col, rel_y, section_h = placements[idx]
             x = inner_x + col * (section_w + col_gap)
             yy = y + rel_y
-            draw.rounded_rectangle((x, yy, x + section_w, yy + section_h), radius=12, fill=soft, outline=line, width=2)
+            self._draw_gradient_panel(
+                canvas,
+                (x, yy, x + section_w, yy + section_h),
+                radius=14,
+                alpha=98,
+                outline=line,
+                width=2,
+            )
             draw.text((x + 16, yy + 24), section_title, font=section_font, fill=orange, anchor="lm")
-            draw.line((x + 14, yy + 44, x + section_w - 14, yy + 44), fill=line, width=2)
+            draw.line((x + 14, yy + 44, x + section_w - 14, yy + 44), fill=(255, 255, 255, 170), width=2)
             row_y = yy + 54
             text_w = section_w - 32
             for command, desc in rows:
@@ -1183,7 +1463,7 @@ class CatgirlService:
         safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "sections"))[:40] or "sections"
         out = self.cache_dir / f"section_card_{safe_tag}_{int(time.time() * 1000)}.png"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        canvas.save(out, "PNG")
+        canvas.convert("RGB").save(out, "PNG")
         return out
 
     def draw_table_card(
@@ -1266,21 +1546,29 @@ class CatgirlService:
         content_h = 32 + metrics_h + top_gap + table_h + footer_h + 32
         height = padding + header_h + content_h + padding
 
-        canvas = Image.new("RGB", (width, height), "white")
-        draw = ImageDraw.Draw(canvas)
+        canvas = self._make_card_background((width, height)).convert("RGBA")
+        draw = ImageDraw.Draw(canvas, "RGBA")
         orange = (255, 140, 0)
-        blue = (0, 191, 255)
         dark = (40, 40, 40)
         muted = (90, 90, 90)
-        soft = (246, 250, 255)
-        line = (220, 238, 248)
+        soft = (255, 255, 255, 142)
+        line = (255, 255, 255, 205)
+        row_fill_a = (255, 249, 238, 168)
+        row_fill_b = (255, 238, 230, 148)
 
         draw.text((width // 2, padding + 18), title, font=title_font, fill=orange, anchor="ma")
         if subtitle:
             draw.text((width // 2, padding + 76), subtitle, font=sub_font, fill=muted, anchor="ma")
 
         card_x, card_y = padding, padding + header_h
-        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + content_h), radius=18, outline=blue, width=5, fill=(255, 255, 255))
+        self._draw_gradient_panel(
+            canvas,
+            (card_x, card_y, card_x + card_w, card_y + content_h),
+            radius=22,
+            alpha=88,
+            outline=(255, 255, 255, 215),
+            width=3,
+        )
         y = card_y + 32
 
         if metrics:
@@ -1301,7 +1589,7 @@ class CatgirlService:
 
         x = inner_x
         if headers:
-            draw.rounded_rectangle((inner_x, y, inner_x + inner_w, y + header_row_h), radius=10, fill=soft, outline=line, width=2)
+            draw.rounded_rectangle((inner_x, y, inner_x + inner_w, y + header_row_h), radius=10, fill=(255, 245, 224, 190), outline=line, width=2)
             cx = inner_x
             for idx, header in enumerate(headers[:col_count]):
                 draw.text((cx + 10, y + header_row_h // 2), self._truncate_text(draw, header, header_font, widths[idx] - 20), font=header_font, fill=orange, anchor="lm")
@@ -1310,9 +1598,9 @@ class CatgirlService:
 
         for row_idx, row in enumerate(rows):
             current_row_h = row_heights[row_idx]
-            fill = (255, 255, 255) if row_idx % 2 == 0 else (250, 253, 255)
-            draw.rectangle((inner_x, y, inner_x + inner_w, y + current_row_h), fill=fill)
-            draw.line((inner_x, y + current_row_h, inner_x + inner_w, y + current_row_h), fill=line, width=1)
+            fill = row_fill_a if row_idx % 2 == 0 else row_fill_b
+            draw.rounded_rectangle((inner_x, y + 2, inner_x + inner_w, y + current_row_h - 2), radius=8, fill=fill)
+            draw.line((inner_x + 8, y + current_row_h, inner_x + inner_w - 8, y + current_row_h), fill=(255, 255, 255, 132), width=1)
             cx = inner_x
             for idx in range(col_count):
                 color = dark if idx == 0 else muted
@@ -1334,7 +1622,7 @@ class CatgirlService:
         safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "table"))[:40] or "table"
         out = self.cache_dir / f"table_card_{safe_tag}_{int(time.time() * 1000)}.png"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        canvas.save(out, "PNG")
+        canvas.convert("RGB").save(out, "PNG")
         return out
 
     def status(self, uid: str) -> Tuple[bool, str, Optional[Path]]:
@@ -1404,6 +1692,7 @@ class CatgirlService:
                 ("精力", self._fmt_int(cat.get("energy", 0))),
                 ("体重", self._weight_display(cat)),
                 ("体型", cat.get("body_type", "匀称")),
+                (self._coin_name(), f"{self.economy.get_balance(uid)} {self._coin_name()}"),
             ],
             footer=f"状态：{status_tag(cat)}",
             tag=f"status_{uid}",
@@ -1677,16 +1966,7 @@ class CatgirlService:
         ok = result[0]
         if not ok:
             _, msg, current_cat, *_ = result
-            card = self.draw_care_card(
-                "喂猫未完成",
-                current_cat or cat,
-                lines=[msg],
-                metrics=[
-                    ("饱食度", self._fmt_int((current_cat or cat).get("satiety", 0))) if (current_cat or cat) else ("饱食度", "0"),
-                ],
-                tag=f"feed_err_{uid}",
-            ) if (current_cat or cat) else None
-            return False, msg, card
+            return False, msg, None
 
         _, _, cat, satiety_add, mood_add, health_add, energy_add, growth_add, balance, stage_msg, intimacy_add, weight_gain, health_multiplier, health_label = result
         weight_delta_display = self._fmt_delta(weight_gain)
@@ -1966,7 +2246,7 @@ class CatgirlService:
             lines = [f"完成了{detail.get('job_name', '打工')}，抱着小钱包跑回来啦～"]
             if detail.get("stage_msg"):
                 lines.append(str(detail.get("stage_msg")).strip())
-            title = "打工完成"
+            title = "打工结果"
         elif event_type == "started":
             metrics = [
                 ("预计报酬", f"{detail.get('reward', 0)} {coin_name}"),
@@ -1984,7 +2264,7 @@ class CatgirlService:
                 f"道具加成：{self._fmt_percent(float(detail.get('work_buff', 1)) * 100)}。" if float(detail.get("work_buff", 1)) > 1 else "",
                 "等她回来后，再发送「猫娘打工」领取报酬和成长奖励。",
             ]
-            title = "猫娘打工"
+            title = "打工结果"
         elif event_type == "working":
             metrics = [
                 ("剩余", detail.get("remain", "-")),
@@ -1993,7 +2273,7 @@ class CatgirlService:
                 ("亲密度", self._fmt_delta(detail.get("intimacy_add", 0))),
             ]
             lines = [f"正在{detail.get('job_name', '打工')}，还需要一点时间。"]
-            title = "打工进行中"
+            title = "打工结果"
         else:
             metrics = [
                 ("健康", self._fmt_int(cat.get("health", 0))),
@@ -2002,10 +2282,11 @@ class CatgirlService:
                 ("心情", self._fmt_int(cat.get("mood", 0))),
             ]
             lines = [msg]
-            title = "暂不能打工"
+            title = "打工结果"
 
-        card = self.draw_info_card(
+        card = self.draw_care_card(
             title,
+            cat,
             subtitle=str(detail.get("job_name", "")) if isinstance(detail, dict) else "",
             lines=lines,
             metrics=metrics,
@@ -2212,18 +2493,7 @@ class CatgirlService:
 
         ok, err_msg, cat, stage_msg, mood_add, intimacy_add, growth_add, today_count, energy_cost, mood_multiplier, daily_multiplier, mood_label, daily_label, interaction_buff = self.store.update(op)
         if not ok:
-            card = self.draw_care_card(
-                "互动未完成",
-                cat,
-                lines=[err_msg],
-                metrics=[
-                    ("健康", self._fmt_int(cat.get("health", 0))) if cat else ("健康", "-"),
-                    ("精力", self._fmt_int(cat.get("energy", 0))) if cat else ("精力", "-"),
-                    ("今日互动", str(today_count) if cat else "-"),
-                ],
-                tag=f"interact_err_{uid}",
-            ) if cat else None
-            return False, err_msg, card
+            return False, err_msg, None
 
         reward_multiplier = float(mood_multiplier or 1) * float(daily_multiplier or 1) * float(interaction_buff or 1)
         msg = (
@@ -2372,8 +2642,15 @@ class CatgirlService:
 
         def op(root):
             wallet = root.setdefault("wallet", {})
-            ok, cat, err_msg = self._load_active_cat(root, uid)
-            if not ok:
+            if str(item.get("effect", "")) == "recall_runaway":
+                cat = root.setdefault("catgirls", {}).get(uid)
+                if isinstance(cat, dict):
+                    cat, _ = normalize_catgirl(cat, uid)
+            else:
+                ok, cat, err_msg = self._load_active_cat(root, uid)
+                if not ok:
+                    return False, err_msg, cat, 0, 0
+            if str(item.get("effect", "")) != "recall_runaway" and not cat:
                 return False, err_msg, cat, 0, 0
             balance = int(wallet.get(uid, 0))
             if balance < total:
@@ -2382,7 +2659,8 @@ class CatgirlService:
             item_id = str(item.get("id"))
             bag[item_id] = int(bag.get(item_id, 0) or 0) + quantity
             wallet[uid] = balance - total
-            root.setdefault("catgirls", {})[uid] = cat
+            if cat:
+                root.setdefault("catgirls", {})[uid] = cat
             return True, f"购买成功：{item['name']} x{quantity}\n花费：{total} {coin_name}\n当前余额：{wallet[uid]} {coin_name}", cat, wallet[uid], int(bag[item_id])
 
         ok, msg, cat, balance, owned = self.store.update(op)
@@ -2421,6 +2699,66 @@ class CatgirlService:
             )
             return False, msg, card
         effect = str(item.get("effect", "instant"))
+
+        if effect == "recall_runaway":
+            def recall_op(root):
+                bag = self._item_quantity_map(root, uid)
+                item_id = str(item.get("id"))
+                count = self._item_count(bag.get(item_id))
+                if count <= 0:
+                    return False, f"背包里没有「{item['name']}」。", None, 0
+                cats = root.setdefault("catgirls", {})
+                active = cats.get(uid)
+                if isinstance(active, dict) and active.get("name"):
+                    return False, f"你已经有猫娘「{active.get('name', '猫娘')}」在身边啦，不需要召回。", active, count
+                runaway_map = root.setdefault("runaway_catgirls", {})
+                runaway_cat = runaway_map.get(uid)
+                if not isinstance(runaway_cat, dict) or not runaway_cat.get("name"):
+                    return False, "没有可召回的离家猫娘。你也可以发送「请赐我一只可爱猫娘吧」重新遇见新的猫娘。", None, count
+                runaway_cat, _ = normalize_catgirl(runaway_cat, uid)
+                runaway_cat.pop("is_runaway", None)
+                runaway_cat.pop("runaway_at", None)
+                runaway_cat.pop("satiety_zero_since", None)
+                runaway_cat["satiety"] = max(float(runaway_cat.get("satiety", 0) or 0), 35)
+                runaway_cat["mood"] = max(float(runaway_cat.get("mood", 0) or 0), 60)
+                runaway_cat["health"] = max(float(runaway_cat.get("health", 0) or 0), 70)
+                runaway_cat["energy"] = max(float(runaway_cat.get("energy", 0) or 0), 55)
+                runaway_cat["last_decay"] = now_ts()
+                cats[uid] = runaway_cat
+                runaway_map.pop(uid, None)
+                root.setdefault("runaway_notices", {}).pop(uid, None)
+                bag[item_id] = count - 1
+                if bag[item_id] <= 0:
+                    bag.pop(item_id, None)
+                self._grant_starter_cards(root, uid)
+                return True, f"命运的红线轻轻发亮，「{runaway_cat.get('name', '猫娘')}」循着羁绊回到了你身边。", runaway_cat, int(bag.get(item_id, 0) or 0)
+
+            ok, msg, cat, left = self.store.update(recall_op)
+            if not ok:
+                card = self.draw_info_card(
+                    "召回未完成",
+                    subtitle=str(item.get("name", "道具")),
+                    lines=[msg, str(item.get("description", ""))],
+                    metrics=[("道具", item.get("name", "道具")), ("剩余", str(left))],
+                    footer="没有可召回猫娘时，可以发送「请赐我一只可爱猫娘吧」重新遇见新的猫娘。",
+                    tag=f"recall_err_{uid}",
+                )
+                return False, msg, card
+            card = self.draw_care_card(
+                "猫娘召回",
+                cat,
+                lines=[msg],
+                metrics=[
+                    ("饱食度", self._fmt_int(cat.get("satiety", 0))),
+                    ("心情", self._fmt_int(cat.get("mood", 0))),
+                    ("健康", self._fmt_int(cat.get("health", 0))),
+                    ("精力", self._fmt_int(cat.get("energy", 0))),
+                    ("剩余红线", str(left)),
+                ],
+                footer="她回来了。记得好好照顾她喔。",
+                tag=f"recall_{uid}",
+            )
+            return True, msg, card
 
         def op(root):
             ok, cat, err_msg = self._load_active_cat(root, uid)
@@ -2938,6 +3276,7 @@ class CatgirlService:
 
         def op(root):
             all_cats = root.setdefault("catgirls", {})
+            wallet = root.setdefault("wallet", {})
             rows = []
             for uid, cat in list(all_cats.items()):
                 if not isinstance(cat, dict) or not cat.get("name"):
@@ -2955,6 +3294,7 @@ class CatgirlService:
                 rank_cat = dict(cat)
                 nickname = sign_data.get(uid, {}).get("last_nickname", uid)
                 rank_cat["owner_nickname"] = nickname
+                rank_cat["wallet_balance"] = int(wallet.get(uid, 0) or 0)
                 rows.append(rank_cat)
             return rows
 
@@ -2968,10 +3308,10 @@ class CatgirlService:
 
         cols = 4
         card_w = 340
-        card_h = 540
+        card_h = 660
         padding = 30
-        img_w = 280
-        img_h = 320
+        img_w = 312
+        img_h = 360
         title_h = 120
         bottom_padding = 80
         side_margin = 50
@@ -2981,8 +3321,8 @@ class CatgirlService:
         total_w = content_w + side_margin * 2
         total_h = title_h + rows * (card_h + padding) - padding + bottom_padding
 
-        canvas = Image.new("RGB", (total_w, total_h), "white")
-        d = ImageDraw.Draw(canvas)
+        canvas = self._make_card_background((total_w, total_h)).convert("RGBA")
+        d = ImageDraw.Draw(canvas, "RGBA")
 
         title_font = self._font(76)
         name_font = self._font(32)
@@ -2996,7 +3336,14 @@ class CatgirlService:
             x = side_margin + col * (card_w + padding)
             y = title_h + row * (card_h + padding)
 
-            d.rounded_rectangle((x, y, x + card_w, y + card_h), radius=15, outline=(0, 191, 255), width=5)
+            self._draw_gradient_panel(
+                canvas,
+                (x, y, x + card_w, y + card_h),
+                radius=18,
+                alpha=102,
+                outline=(255, 255, 255, 220),
+                width=3,
+            )
 
             cat_name = str(cat.get("name", "猫娘"))
             if len(cat_name) > 8:
@@ -3008,25 +3355,45 @@ class CatgirlService:
             if img_path and Path(img_path).exists():
                 try:
                     img = Image.open(img_path).convert("RGB")
-                    img = self._cover(img, img_w, img_h)
-                    canvas.paste(img, (x + 30, img_y))
+                    img = self._contain_in_frame(img, img_w, img_h, fill=(255, 250, 246))
+                    self._paste_round(canvas, img, (x + 14, img_y, img_w, img_h), 14)
                 except Exception:
-                    self._draw_no_image(d, x + 30, img_y, img_w, img_h)
+                    self._draw_no_image(d, x + 14, img_y, img_w, img_h)
             else:
-                self._draw_no_image(d, x + 30, img_y, img_w, img_h)
+                self._draw_no_image(d, x + 14, img_y, img_w, img_h)
 
-            info_y = img_y + img_h + 20
-            d.text((x + card_w // 2, info_y), f"{stage_name(cat.get('stage', 0))}｜亲密 {self._intimacy_display(cat)}", font=info_font, fill=(60, 60, 60), anchor="mm")
-            d.text((x + card_w // 2, info_y + 35), f"羁绊分: {bond_score(cat)}", font=info_font, fill=(255, 140, 0), anchor="mm")
-
+            info_y = img_y + img_h + 30
             owner = cat.get("owner_nickname", cat.get("user", ""))
             if len(owner) > 10:
                 owner = owner[:10] + "..."
-            d.text((x + card_w // 2, info_y + 70), f"主人: {owner}", font=info_font, fill=(60, 60, 60), anchor="mm")
+            info_items = [
+                ("阶段", stage_name(cat.get("stage", 0)), (255, 239, 215, 190), (218, 116, 31, 255)),
+                ("羁绊", str(bond_score(cat)), (255, 228, 220, 180), (222, 83, 61, 255)),
+                ("主人", str(owner), (255, 243, 199, 175), (190, 126, 31, 255)),
+            ]
+            info_gap = 8
+            info_w = (card_w - 28 - info_gap * 2) // 3
+            info_h = 74
+            for info_idx, (label, value, fill, text_fill) in enumerate(info_items):
+                ix = x + 14 + info_idx * (info_w + info_gap)
+                iy = info_y
+                d.rounded_rectangle((ix, iy, ix + info_w, iy + info_h), radius=12, fill=fill, outline=(255, 255, 255, 180), width=1)
+                d.text((ix + info_w // 2, iy + 23), label, font=self._font(20), fill=(92, 67, 48, 220), anchor="mm")
+                value_font = self._fit_font(d, value, 24, info_w - 12, min_size=17)
+                d.text((ix + info_w // 2, iy + 52), self._truncate_text(d, value, value_font, info_w - 12), font=value_font, fill=text_fill, anchor="mm")
+
+            coin_name = self._coin_name()
+            balance_text = f"{int(cat.get('wallet_balance', 0) or 0)} {coin_name}"
+            coin_y = info_y + info_h + 12
+            d.rounded_rectangle((x + 14, coin_y, x + card_w - 14, coin_y + 58), radius=14, fill=(255, 235, 205, 185), outline=(255, 255, 255, 180), width=1)
+            d.text((x + 30, coin_y + 29), f"{coin_name}数量", font=self._font(22), fill=(134, 81, 35, 230), anchor="lm")
+            value_font = self._fit_font(d, balance_text, 26, card_w - 150, min_size=18)
+            self._draw_diamond_icon(d, x + card_w - self._text_size(d, balance_text, value_font)[0] - 54, coin_y + 29, 24)
+            d.text((x + card_w - 28, coin_y + 30), balance_text, font=value_font, fill=(255, 140, 0), anchor="rm")
 
         out = self.cache_dir / f"bond_rank_{gid or 'global'}.png"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        canvas.save(out, "PNG")
+        canvas.convert("RGB").save(out, "PNG")
         return out
 
     def _draw_no_image(self, d: ImageDraw.ImageDraw, x: int, y: int, img_w: int, img_h: int):

@@ -69,7 +69,7 @@ def neko_command(command_name: str, alias: set | None = None, **kwargs):
 
     return decorator
 
-@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.4.8")
+@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.5.2")
 class SapphireEconomyPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -461,7 +461,7 @@ class SapphireEconomyPlugin(Star):
         care = self._care_rules()
         feed_limit = care.get("feed_satiety_limit", 85)
         satiety_minutes = int(float(care.get("satiety_decay_minutes", 2880)))
-        runaway_hours = float(care.get("runaway_after_zero_hours", 24))
+        runaway_hours = float(care.get("runaway_after_zero_hours", 168))
         help_sections = [
             ("基础经济", [
                 ("签到 / 猫猫签到", "每日领取宝石"),

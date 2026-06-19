@@ -48,7 +48,7 @@ def default_runtime_config() -> Dict[str, Any]:
             "health_recovery_per_day": 1.5,
             "health_hungry_satiety_threshold": 20,
             "health_low_mood_threshold": 30,
-            "runaway_after_zero_hours": 24,
+            "runaway_after_zero_hours": 168,
             "interaction_daily_limit": 5,
             "interaction_cooldown_seconds": 300,
             "interaction_energy_cost": 4,
@@ -316,6 +316,7 @@ def default_runtime_config() -> Dict[str, Any]:
                 {"id": "nutrition", "name": "营养补剂", "category": "护理", "price": 240, "description": "健康 +10，饱食 +10。", "effect": "instant", "health_add": 10, "satiety_add": 10, "enabled": True},
                 {"id": "lucky_badge", "name": "幸运工牌", "category": "道具", "price": 420, "description": "下一次猫娘打工报酬提高 15%。", "effect": "next_work", "multiplier": 1.15, "enabled": True},
                 {"id": "premium_bento", "name": "高级便当", "category": "食物", "price": 220, "description": "饱食 +35，心情 +8，健康 +3。", "effect": "instant", "satiety_add": 35, "mood_add": 8, "health_add": 3, "enabled": True},
+                {"id": "red_thread_of_fate", "name": "命运的红线", "category": "功能卡", "price": 1200, "description": "召回已经离家出走的猫娘。", "effect": "recall_runaway", "enabled": True},
                 {"id": "rename_card", "name": "改名卡", "category": "功能卡", "price": 300, "description": "改名时自动消耗，可免费修改一次猫娘名字。", "effect": "rename_card", "enabled": True},
                 {"id": "appearance_card", "name": "形象更改卡", "category": "功能卡", "price": 900, "description": "更换猫娘形象时自动消耗，可免除一次形象更换费用。", "effect": "appearance_card", "enabled": True},
             ],
@@ -419,7 +420,7 @@ class NekoRuntimeConfig:
             ("health_recovery_per_day", 1.5, 0, 1000),
             ("health_hungry_satiety_threshold", 20, 0, 100),
             ("health_low_mood_threshold", 30, 0, 100),
-            ("runaway_after_zero_hours", 24, 1, 10_000),
+            ("runaway_after_zero_hours", 168, 1, 10_000),
             ("interaction_daily_limit", 5, 0, 1000),
             ("interaction_cooldown_seconds", 300, 0, 86_400),
             ("interaction_energy_cost", 4, 0, 100),
@@ -633,6 +634,14 @@ class NekoRuntimeConfig:
             self._ensure_order(item, "growth_min", "growth_max")
             self._ensure_order(item, "intimacy_min", "intimacy_max")
             result.append(item)
+        existing_ids = {str(item.get("id", "")) for item in result}
+        existing_names = {str(item.get("name", "")) for item in result}
+        for default_row in defaults:
+            if not isinstance(default_row, dict):
+                continue
+            if str(default_row.get("id", "")) in existing_ids or str(default_row.get("name", "")) in existing_names:
+                continue
+            result.append(copy.deepcopy(default_row))
         return result or copy.deepcopy(defaults)
 
     def _care_services(self, rows, defaults):
