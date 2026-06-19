@@ -245,7 +245,7 @@ class CatgirlService:
     def _get(self, uid: str) -> Optional[Dict]:
         self._finalize_expired_adoption(uid)
         def op(root):
-            ok, cat, _ = self._load_active_cat(root, uid)
+            ok, cat, _ = self._load_active_cat(root, uid, consume_notice=False)
             return cat if ok else None
         return self.store.update(op)
 
@@ -256,6 +256,32 @@ class CatgirlService:
     def has_catgirl(self, uid: str) -> bool:
         cat = self._get(uid)
         return bool(cat and cat.get("name"))
+
+    def update_notify_target(self, uid: str, session: str = "", platform: str = "") -> None:
+        session = str(session or "").strip()
+        platform = str(platform or "").strip()
+        if not session and not platform:
+            return
+
+        def op(root):
+            cats = root.setdefault("catgirls", {})
+            cat = cats.get(uid)
+            if not isinstance(cat, dict) or not cat.get("name"):
+                return
+            if session:
+                cat["notify_session"] = session
+            if platform:
+                cat["notify_platform"] = platform
+            cats[uid] = cat
+
+        self.store.update(op)
+
+    def missing_cat_message(self, uid: str) -> str:
+        def op(root):
+            notice = self._pop_runaway_notice(root, uid)
+            return notice or "你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。"
+
+        return self.store.update(op)
 
     def _font(self, size: int):
         for p in [self.font_dir / "GBK.TTF", self.font_dir / "FZKATJW.ttf", self.base_dir / "GBK.TTF"]:
@@ -606,16 +632,38 @@ class CatgirlService:
             "她的档案已清除。想重新开始的话，可以再次发送「请赐我一只可爱猫娘吧」。"
         )
 
-    def _load_active_cat(self, root: Dict, uid: str):
+    def _set_runaway_notice(self, root: Dict, uid: str, cat: Dict) -> str:
+        message = self._runaway_message(cat)
+        root.setdefault("runaway_notices", {})[uid] = {
+            "message": message,
+            "cat_name": str(cat.get("name", "猫娘")),
+            "created_at": now_ts(),
+        }
+        return message
+
+    def _pop_runaway_notice(self, root: Dict, uid: str) -> Optional[str]:
+        notice = root.setdefault("runaway_notices", {}).pop(uid, None)
+        if isinstance(notice, dict):
+            message = str(notice.get("message", "")).strip()
+            return message or None
+        if isinstance(notice, str):
+            return notice.strip() or None
+        return None
+
+    def _load_active_cat(self, root: Dict, uid: str, consume_notice: bool = True):
         cats = root.setdefault("catgirls", {})
         cat = cats.get(uid)
         if not cat or not cat.get("name"):
+            if consume_notice:
+                notice = self._pop_runaway_notice(root, uid)
+                if notice:
+                    return False, None, notice
             return False, None, "你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。"
         cat, _ = normalize_catgirl(cat, uid)
         cat, runaway = self._apply_decay(cat)
         if runaway:
             cats.pop(uid, None)
-            return False, cat, self._runaway_message(cat)
+            return False, cat, self._set_runaway_notice(root, uid, cat)
         cats[uid] = cat
         self._grant_starter_cards(root, uid)
         return True, cat, ""
@@ -1576,7 +1624,7 @@ class CatgirlService:
     def feed(self, uid: str) -> Tuple[bool, str, Optional[Path]]:
         cat = self._get(uid)
         if not cat or not cat.get("name"):
-            return False, "你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。", None
+            return False, self.missing_cat_message(uid), None
 
         today = today_str()
         care_rules = self._care_rules()
@@ -1900,7 +1948,14 @@ class CatgirlService:
 
         ok, msg, cat, event_type, detail = self.store.update(op)
         if not cat:
-            return ok, msg, None
+            card = self.draw_info_card(
+                "暂不能打工",
+                lines=[msg],
+                metrics=[("用法", "猫娘打工 [地点名]")],
+                footer="发送「请赐我一只可爱猫娘吧」获取猫娘后再打工。",
+                tag=f"work_err_{uid}",
+            )
+            return ok, msg, card
         if event_type == "finished":
             metrics = [
                 ("获得", f"{detail.get('reward', 0)} {coin_name}"),
@@ -1949,7 +2004,14 @@ class CatgirlService:
             lines = [msg]
             title = "暂不能打工"
 
-        card = self.draw_care_card(title, cat, lines=lines, metrics=metrics, tag=f"work_{uid}")
+        card = self.draw_info_card(
+            title,
+            subtitle=str(detail.get("job_name", "")) if isinstance(detail, dict) else "",
+            lines=lines,
+            metrics=metrics,
+            footer="发送「猫娘打工 列表」查看地点；发送「猫娘状态」查看完整档案。",
+            tag=f"work_{uid}",
+        )
         return ok, msg, card
 
     def work_unlock(self, uid: str, job_query: str = ""):
@@ -1998,8 +2060,17 @@ class CatgirlService:
         if not selected_job:
             if matches:
                 names = "、".join(str(job.get("name", "打工地点")) for job in matches[:8])
-                return False, f"找到多个相近的打工地点：{names}\n请发送更完整的地点名。", None
-            return False, f"没有找到「{job_query}」这个打工地点。\n可选地点：{self._work_job_names(jobs)}", None
+                msg = f"找到多个相近的打工地点：{names}\n请发送更完整的地点名。"
+            else:
+                msg = f"没有找到「{job_query}」这个打工地点。\n可选地点：{self._work_job_names(jobs)}"
+            card = self.draw_info_card(
+                "打工解锁未完成",
+                lines=[msg],
+                metrics=[("用法", "猫娘打工 解锁 地点名")],
+                footer="发送「猫娘打工 解锁」查看地点解锁状态。",
+                tag=f"work_unlock_err_{uid}",
+            )
+            return False, msg, card
 
         def op(root):
             wallet = root.setdefault("wallet", {})
@@ -2034,9 +2105,9 @@ class CatgirlService:
             return True, f"已解锁打工地点「{selected_job['name']}」，花费 {cost} {coin_name}。\n当前余额：{wallet[uid]} {coin_name}", cat, wallet[uid]
 
         ok, msg, cat, balance = self.store.update(op)
-        card = self.draw_care_card(
+        card = self.draw_info_card(
             "打工解锁完成" if ok else "打工解锁未完成",
-            cat,
+            subtitle=str(selected_job.get("name", "打工地点")),
             lines=[msg],
             metrics=[
                 ("地点", selected_job.get("name", "打工地点")),
@@ -2044,8 +2115,9 @@ class CatgirlService:
                 ("余额", f"{balance} {coin_name}"),
                 ("阶段要求", stage_name(selected_job.get("min_stage", 0))),
             ],
+            footer="发送「猫娘打工 列表」查看地点收益与消耗。",
             tag=f"work_unlock_{uid}",
-        ) if cat else None
+        )
         return ok, msg, card
 
     def interact(self, uid: str, action: str):
@@ -2283,8 +2355,17 @@ class CatgirlService:
         if not item:
             if matches:
                 names = "、".join(str(row.get("name", "道具")) for row in matches[:8])
-                return False, f"找到多个相近道具：{names}\n请发送更完整的道具名。", None
-            return False, f"没有找到「{item_query}」这个道具。发送「猫娘商店」查看可购买道具。", None
+                msg = f"找到多个相近道具：{names}\n请发送更完整的道具名。"
+            else:
+                msg = f"没有找到「{item_query}」这个道具。发送「猫娘商店」查看可购买道具。"
+            card = self.draw_info_card(
+                "购买未完成",
+                lines=[msg],
+                metrics=[("用法", "购买 道具名 [数量]")],
+                footer="发送「猫娘商店」查看可购买道具。",
+                tag=f"buy_err_{uid}",
+            )
+            return False, msg, card
         coin_name = self._coin_name()
         price = int(item.get("price", 0) or 0)
         total = price * quantity
@@ -2305,9 +2386,9 @@ class CatgirlService:
             return True, f"购买成功：{item['name']} x{quantity}\n花费：{total} {coin_name}\n当前余额：{wallet[uid]} {coin_name}", cat, wallet[uid], int(bag[item_id])
 
         ok, msg, cat, balance, owned = self.store.update(op)
-        card = self.draw_care_card(
+        card = self.draw_info_card(
             "购买完成" if ok else "购买未完成",
-            cat,
+            subtitle=str(item.get("name", "道具")),
             lines=[msg, str(item.get("description", ""))],
             metrics=[
                 ("道具", item.get("name", "道具")),
@@ -2316,8 +2397,9 @@ class CatgirlService:
                 ("拥有", str(owned)),
                 ("余额", f"{balance} {coin_name}"),
             ],
+            footer="发送「背包」查看已拥有道具；发送「使用 道具名」使用道具。",
             tag=f"buy_{uid}",
-        ) if cat else None
+        )
         return ok, msg, card
 
     def use_item(self, uid: str, query: str):
@@ -2327,8 +2409,17 @@ class CatgirlService:
         if not item:
             if matches:
                 names = "、".join(str(row.get("name", "道具")) for row in matches[:8])
-                return False, f"找到多个相近道具：{names}\n请发送更完整的道具名。", None
-            return False, f"没有找到「{item_query}」这个道具。", None
+                msg = f"找到多个相近道具：{names}\n请发送更完整的道具名。"
+            else:
+                msg = f"没有找到「{item_query}」这个道具。"
+            card = self.draw_info_card(
+                "使用未完成",
+                lines=[msg],
+                metrics=[("用法", "使用 道具名")],
+                footer="发送「背包」查看已拥有道具；发送「猫娘商店」查看可购买道具。",
+                tag=f"use_err_{uid}",
+            )
+            return False, msg, card
         effect = str(item.get("effect", "instant"))
 
         def op(root):
@@ -2421,7 +2512,17 @@ class CatgirlService:
 
         ok, msg, cat, detail = self.store.update(op)
         if not ok:
-            card = self.draw_care_card("使用未完成", cat, lines=[msg], tag=f"use_err_{uid}") if cat else None
+            card = self.draw_info_card(
+                "使用未完成",
+                subtitle=str(item.get("name", "道具")),
+                lines=[msg, str(item.get("description", ""))],
+                metrics=[
+                    ("道具", item.get("name", "道具")),
+                    ("用法", "使用 道具名"),
+                ],
+                footer="发送「背包」查看已拥有道具；功能卡会在对应操作中自动消耗。",
+                tag=f"use_err_{uid}",
+            )
             return False, msg, card
 
         lines = [f"使用了「{detail.get('item')}」。"]
@@ -2439,9 +2540,8 @@ class CatgirlService:
             f"\n亲密度 {self._fmt_delta(detail.get('intimacy_add', 0))}"
             f"\n成长值 {self._fmt_delta(detail.get('growth_add', 0))}"
         )
-        card = self.draw_care_card(
+        card = self.draw_info_card(
             "道具使用",
-            cat,
             subtitle=str(detail.get("item", "")),
             lines=lines,
             metrics=[
@@ -2453,6 +2553,7 @@ class CatgirlService:
                 ("成长值", self._fmt_delta(detail.get("growth_add", 0))),
                 ("剩余", str(detail.get("left", 0))),
             ],
+            footer="发送「背包」查看剩余道具；发送「猫娘商店」购买更多道具。",
             tag=f"use_{uid}",
         )
         return True, msg, card
@@ -2616,7 +2717,7 @@ class CatgirlService:
         """安全保存图片，成功后原子扣费。"""
         cat = self._get(uid)
         if not cat or not cat.get("name"):
-            return False, "你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。", None
+            return False, self.missing_cat_message(uid), None
         _, _, appearance_change_price = self._wish_rules()
         coin_name = self._coin_name()
 
@@ -2845,6 +2946,7 @@ class CatgirlService:
                 cat, runaway = self._apply_decay(cat)
                 if runaway:
                     all_cats.pop(uid, None)
+                    self._set_runaway_notice(root, uid, cat)
                     continue
                 all_cats[uid] = cat
                 if gid and cat.get("home_gid") != gid:

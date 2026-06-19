@@ -5,8 +5,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register, StarTools
+from astrbot.api.star import Context, Star, register
 from astrbot.core.star.filter.command import GreedyStr
 
 try:
@@ -63,12 +64,12 @@ def neko_command(command_name: str, alias: set | None = None, **kwargs):
     command_names = [command_name, *(alias or set())]
 
     def decorator(awaitable):
-        awaitable = filter.custom_filter(keyword_command_filter(*command_names), False)(awaitable)
+        awaitable = filter.custom_filter(keyword_command_filter(*command_names), False, **kwargs)(awaitable)
         return filter.command(command_name, alias=alias, **kwargs)(awaitable)
 
     return decorator
 
-@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.4.6")
+@register("astrbot_plugin_neko_care", "若梦&TenmaGabriel0721", "猫娘羁绊养成、签到打工", "1.4.8")
 class SapphireEconomyPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -89,6 +90,13 @@ class SapphireEconomyPlugin(Star):
         self.wish_probability = min(1.0, max(0.0, float(self.config.get("catgirl_wish_probability", 0.8))))
         self.wish_pity = max(1, int(self.config.get("catgirl_wish_pity", 3)))
         self.appearance_change_price = max(0, int(self.config.get("appearance_change_price", 900)))
+        self.cache_cleanup_enabled = bool(self.config.get("cache_cleanup_enabled", True))
+        self.cache_retention_days = max(0.0, float(self.config.get("cache_retention_days", 3)))
+        self.cache_max_mb = max(0, int(self.config.get("cache_max_mb", 100)))
+        self.cache_cleanup_interval_hours = max(
+            1.0,
+            float(self.config.get("cache_cleanup_interval_hours", 6)),
+        )
 
         base_dir = Path(__file__).resolve().parent
         self.base_dir = base_dir
@@ -133,6 +141,7 @@ class SapphireEconomyPlugin(Star):
         global PENDING_IMAGE_CHANGES
         self._pending_image_changes = PENDING_IMAGE_CHANGES
         self._background_tasks = set()
+        self._cache_cleanup_task = None
 
     def _runtime_snapshot(self) -> dict:
         runtime_config = getattr(self, "runtime_config", None)
@@ -205,12 +214,117 @@ class SapphireEconomyPlugin(Star):
             encoding="utf-8",
         )
 
+    def _track_background_task(self, coro, name: str = "") -> asyncio.Task:
+        task = asyncio.create_task(coro, name=name or None)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    @filter.on_astrbot_loaded()
+    async def on_astrbot_loaded(self):
+        if not self.cache_cleanup_enabled:
+            return
+        await self._cleanup_cache_files()
+        if self._cache_cleanup_task is None or self._cache_cleanup_task.done():
+            self._cache_cleanup_task = self._track_background_task(
+                self._cache_cleanup_loop(),
+                "neko_care_cache_cleanup",
+            )
+
+    async def _cache_cleanup_loop(self):
+        interval_seconds = self.cache_cleanup_interval_hours * 3600
+        try:
+            while True:
+                await asyncio.sleep(interval_seconds)
+                await self._cleanup_cache_files()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"[NekoCare] 缓存清理循环异常退出: {exc}", exc_info=True)
+
+    async def _cleanup_cache_files(self) -> tuple[int, int, int]:
+        try:
+            deleted_count, deleted_bytes, remaining_bytes = await asyncio.to_thread(
+                self._cleanup_cache_files_sync
+            )
+        except Exception as exc:
+            logger.warning(f"[NekoCare] 清理缓存图片失败: {exc}", exc_info=True)
+            return 0, 0, 0
+
+        if deleted_count:
+            logger.info(
+                f"[NekoCare] 已清理缓存图片 {deleted_count} 个，"
+                f"释放 {deleted_bytes / 1024 / 1024:.2f} MB，"
+                f"剩余 {remaining_bytes / 1024 / 1024:.2f} MB"
+            )
+        return deleted_count, deleted_bytes, remaining_bytes
+
+    def _cleanup_cache_files_sync(self) -> tuple[int, int, int]:
+        if not self.cache_dir.exists():
+            return 0, 0, 0
+
+        now = time.time()
+        max_age_seconds = self.cache_retention_days * 86400
+        max_bytes = self.cache_max_mb * 1024 * 1024 if self.cache_max_mb > 0 else 0
+        min_delete_age_seconds = 3600
+        allowed_suffixes = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+        files = []
+        deleted_count = 0
+        deleted_bytes = 0
+
+        for path in self.cache_dir.iterdir():
+            if not path.is_file() or path.suffix.lower() not in allowed_suffixes:
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            age = now - stat.st_mtime
+            if max_age_seconds > 0 and age > max_age_seconds:
+                try:
+                    size = stat.st_size
+                    path.unlink(missing_ok=True)
+                    deleted_count += 1
+                    deleted_bytes += size
+                except OSError:
+                    pass
+                continue
+            files.append((stat.st_mtime, stat.st_size, path))
+
+        total_bytes = sum(size for _, size, _ in files)
+        if max_bytes > 0 and total_bytes > max_bytes:
+            for mtime, size, path in sorted(files, key=lambda item: item[0]):
+                if total_bytes <= max_bytes:
+                    break
+                if now - mtime < min_delete_age_seconds:
+                    continue
+                try:
+                    path.unlink(missing_ok=True)
+                    deleted_count += 1
+                    deleted_bytes += size
+                    total_bytes -= size
+                except OSError:
+                    pass
+
+        return deleted_count, deleted_bytes, max(0, total_bytes)
+
     def _uid(self, event: AstrMessageEvent) -> str:
         return str(event.get_sender_id())
 
     def _gid(self, event: AstrMessageEvent) -> str:
         gid = event.get_group_id()
         return f"group_{gid}" if gid else f"private_{event.get_sender_id()}"
+
+    def _remember_cat_notify_target(self, event: AstrMessageEvent) -> None:
+        try:
+            self.catgirl.update_notify_target(
+                self._uid(event),
+                str(getattr(event, "unified_msg_origin", "") or ""),
+                str(event.get_platform_name() or ""),
+            )
+        except Exception:
+            pass
 
     def _name(self, event: AstrMessageEvent) -> str:
         try:
@@ -237,20 +351,51 @@ class SapphireEconomyPlugin(Star):
             return False
 
     def _extract_at_uid(self, event: AstrMessageEvent) -> Optional[str]:
+        def pick_target(seg) -> Optional[str]:
+            seg_type = str(getattr(seg, "type", "")).lower()
+            class_name = seg.__class__.__name__.lower()
+            if seg_type not in ("at", "componenttype.at") and class_name != "at":
+                return None
+
+            target = None
+            for attr in ("qq", "target", "user_id", "id"):
+                target = getattr(seg, attr, None)
+                if target:
+                    break
+            if target is None:
+                data = getattr(seg, "data", {}) or {}
+                if isinstance(data, dict):
+                    target = data.get("qq") or data.get("target") or data.get("user_id") or data.get("id")
+
+            target_str = str(target or "").strip()
+            if not target_str or target_str == "all":
+                return None
+            if target_str == str(event.get_self_id()):
+                return None
+            return target_str
+
+        try:
+            for seg in event.get_messages():
+                target = pick_target(seg)
+                if target:
+                    return target
+        except Exception:
+            pass
+
         try:
             msg = event.message_obj.message
             for seg in msg:
-                seg_type = str(getattr(seg, "type", "")).lower()
-                data = getattr(seg, "data", {}) or {}
-                if seg_type == "at":
-                    target = data.get("qq") or data.get("user_id") or data.get("id")
-                    if target and str(target) != "all":
-                        return str(target)
+                target = pick_target(seg)
+                if target:
+                    return target
         except Exception:
             pass
         text = event.message_str or ""
-        m = re.search(r"@(\d+)", text)
-        return m.group(1) if m else None
+        self_id = str(event.get_self_id())
+        for target in re.findall(r"@(\d+)", text):
+            if target != self_id:
+                return target
+        return None
 
     def _extract_first_image(self, event: AstrMessageEvent) -> Optional[str]:
         def pick_from_data(data: dict):
@@ -309,7 +454,7 @@ class SapphireEconomyPlugin(Star):
         self.catgirl.finalize_adoption(gid, uid, choice="first")
         self._pending_adoptions.pop(key, None)
 
-    @neko_command("猫猫帮助", alias={"猫娘帮助"}, desc="查看猫娘养成插件的图片帮助菜单和所有指令说明")
+    @neko_command("猫猫帮助", alias={"猫娘帮助"}, desc="查看猫娘养成插件的完整帮助、指令分组和当前养成规则。用法：猫猫帮助")
     async def catgirl_help(self, event: AstrMessageEvent):
         coin_name = self._coin_name()
         wish_probability, wish_pity, appearance_price = self._wish_rules()
@@ -360,6 +505,7 @@ class SapphireEconomyPlugin(Star):
                 ("管理员给 数量 @用户", "增加宝石"),
                 ("管理员扣 数量 @用户", "扣除宝石"),
                 ("管理员查看 @用户", "查看余额"),
+                ("管理员清理缓存", "清理生成图片"),
             ]),
         ]
         text = (
@@ -392,29 +538,38 @@ class SapphireEconomyPlugin(Star):
         )
         yield self._mixed_result(event, text, card)
 
-    @neko_command("查看猫猫钱包", alias={"查看猫娘钱包"}, desc="查看自己的宝石余额")
+    @neko_command("查看猫猫钱包", alias={"查看猫娘钱包"}, desc="查询自己的宝石余额。用法：查看猫猫钱包")
     async def my_wallet(self, event: AstrMessageEvent):
         uid = self._uid(event)
         bal = self.economy.get_balance(uid)
         yield event.plain_result(f"你的小钱包里有 {bal} {self._coin_name()} 喔～")
 
-    @neko_command("钱包转账", desc="钱包转账 数量 @用户：把宝石转给指定用户")
-    async def wallet_transfer(self, event: AstrMessageEvent, amount: int):
+    @neko_command("钱包转账", desc="把自己的宝石转给指定用户，需要 @ 对方。用法：钱包转账 数量 @用户")
+    async def wallet_transfer(self, event: AstrMessageEvent, amount: str):
         uid = self._uid(event)
         target = self._extract_at_uid(event)
         if not target:
             yield event.plain_result("要 @ 想转账的小伙伴喔～")
             return
-        ok, msg = self.economy.transfer(uid, target, amount)
+        try:
+            # 清洗字符串，只保留数字
+            clean_amount = "".join(c for c in amount if c.isdigit())
+            if not clean_amount:
+                raise ValueError
+            amount_int = int(clean_amount)
+        except ValueError:
+            yield event.plain_result("转账数量必须是纯数字喔～")
+            return
+        ok, msg = self.economy.transfer(uid, target, amount_int)
         yield event.plain_result(msg)
 
-    @neko_command("每日打工", desc="主人每日打工获得宝石，每天一次")
+    @neko_command("每日打工", desc="主人每日打工一次，领取随机宝石收入。用法：每日打工")
     async def daily_work(self, event: AstrMessageEvent):
         uid = self._uid(event)
         ok, msg = self.economy.daily_work(uid)
         yield event.plain_result(msg)
 
-    @neko_command("签到", alias={"猫猫签到"}, desc="每日签到领取宝石和签到卡片")
+    @neko_command("签到", alias={"猫猫签到"}, desc="每日签到领取宝石奖励，按配置返回图片或文字签到卡。用法：签到")
     async def sign_entry(self, event: AstrMessageEvent):
         uid = self._uid(event)
         name = self._name(event)
@@ -441,7 +596,7 @@ class SapphireEconomyPlugin(Star):
         coin_name = self._coin_name()
         yield event.plain_result(f"签到成功喵～ ฅ^•ﻌ•^ฅ\n今天捡到了 {data['inc']} {coin_name}！\n小钱包里现在有 {data['balance']} {coin_name} 啦～\n\n今日一言：\n{quote_line}")
 
-    @neko_command("请赐我一只可爱猫娘吧", desc="每日许愿收养猫娘，失败会累计保底")
+    @neko_command("请赐我一只可爱猫娘吧", desc="每日许愿遇见猫娘，成功后可确认收养或换一只候选。用法：请赐我一只可爱猫娘吧")
     async def wish_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
@@ -459,13 +614,14 @@ class SapphireEconomyPlugin(Star):
             "second": second,
             "expire": time.time() + 120,
         }
-        task = asyncio.create_task(self._auto_finalize_adoption(uid, token, gid))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        self._track_background_task(
+            self._auto_finalize_adoption(uid, token, gid),
+            "neko_care_auto_finalize_adoption",
+        )
         img = self.catgirl.draw_wish_card(first)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("带她回家", alias={"确认收养", "换一只猫娘", "换个形象"}, desc="确认收养当前猫娘，或切换另一个候选猫娘")
+    @neko_command("带她回家", alias={"确认收养", "换一只猫娘", "换个形象"}, desc="确认收养当前候选猫娘；也可切换到另一只候选。用法：带她回家 / 换一只猫娘")
     async def confirm_catgirl_adoption(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
@@ -476,67 +632,78 @@ class SapphireEconomyPlugin(Star):
 
         choice = "second" if raw in ("换一只猫娘", "换个形象") else "first"
         ok, msg, img = self.catgirl.finalize_adoption(gid, uid, choice=choice)
+        self._remember_cat_notify_target(event)
         self._pending_adoptions.pop(uid, None)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("成长档案", alias={"猫娘状态", "猫猫状态", "猫猫档案"}, desc="查看猫娘状态、成长、亲密等级、风险和当前趋势")
+    @neko_command("成长档案", alias={"猫娘状态", "猫猫状态", "猫猫档案"}, desc="查看自己的猫娘档案，包括阶段、亲密、饱食、心情、健康和精力。用法：成长档案")
     async def catgirl_status(self, event: AstrMessageEvent):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img_path = self.catgirl.status(uid)
         yield self._mixed_result(event, msg, img_path)
 
-    @neko_command("喂猫", alias={"喂猫娘", "喂猫猫"}, desc="给猫娘喂食，消耗宝石并提升饱食、心情、精力、成长和亲密")
+    @neko_command("喂猫", alias={"喂猫娘", "喂猫猫"}, desc="给猫娘自动购买并喂食，恢复饱食并提升养成属性。用法：喂猫")
     async def feed_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img_path = self.catgirl.feed(uid)
         yield self._mixed_result(event, msg, img_path)
 
-    @neko_command("猫娘打工", alias={"猫猫打工", "打工"}, desc="猫娘打工 [地点名|列表|解锁 地点名]：派猫娘打工、查看地点或解锁地点")
+    @neko_command("猫娘打工", alias={"猫猫打工", "打工"}, desc="派猫娘打工，支持领取完成任务、指定地点、查看列表和解锁地点。用法：猫娘打工 [地点名|列表|解锁 地点名]")
     async def catgirl_work(self, event: AstrMessageEvent, job_name: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.work(uid, str(job_name or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘商店", alias={"猫猫商店"}, desc="猫娘商店 [分类]：查看可购买道具和价格")
+    @neko_command("猫娘商店", alias={"猫猫商店"}, desc="查看猫娘商店，可按分类浏览食物、礼物、道具和功能卡。用法：猫娘商店 [分类]")
     async def catgirl_shop(self, event: AstrMessageEvent, category: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.shop(uid, str(category or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("背包", alias={"猫娘背包", "猫猫背包"}, desc="查看背包道具数量和待生效加成")
+    @neko_command("背包", alias={"猫娘背包", "猫猫背包"}, desc="查看自己的背包物品、数量和待生效加成。用法：背包")
     async def catgirl_bag(self, event: AstrMessageEvent):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.bag(uid)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("购买", alias={"购买道具", "猫娘购买"}, desc="购买 道具名 [数量]：消耗宝石购买商店道具")
+    @neko_command("购买", alias={"购买道具", "猫娘购买"}, desc="消耗宝石购买商店道具，数量可省略。用法：购买 道具名 [数量]")
     async def catgirl_buy(self, event: AstrMessageEvent, item_name: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.buy_item(uid, str(item_name or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("使用", alias={"使用道具", "猫娘使用"}, desc="使用 道具名：使用背包道具，功能卡会在对应操作自动消耗")
+    @neko_command("使用", alias={"使用道具", "猫娘使用"}, desc="使用背包中的道具；部分功能卡会在对应操作时自动消耗。用法：使用 道具名")
     async def catgirl_use_item(self, event: AstrMessageEvent, item_name: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.use_item(uid, str(item_name or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘护理", alias={"猫猫护理", "护理猫娘", "猫娘看病"}, desc="猫娘护理 [服务名]：查看或购买护理服务")
+    @neko_command("猫娘护理", alias={"猫猫护理", "护理猫娘", "猫娘看病"}, desc="查看或购买护理服务，用于恢复健康、心情、精力或饱食。用法：猫娘护理 [服务名]")
     async def catgirl_care_service(self, event: AstrMessageEvent, service_name: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.care_service(uid, str(service_name or "").strip())
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("撸猫", alias={"逗猫", "摸猫", "rua猫", "陪猫娘", "陪猫猫", "贴贴猫娘", "贴贴猫猫"}, desc="进行内置互动，受冷却、精力、心情和每日收益递减影响")
+    @neko_command("撸猫", alias={"逗猫", "摸猫", "rua猫", "陪猫娘", "陪猫猫", "贴贴猫娘", "贴贴猫猫"}, desc="进行内置互动，消耗精力并提升心情、亲密和成长，受冷却与每日递减影响。用法：撸猫")
     async def interact_catgirl(self, event: AstrMessageEvent):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         action = (event.message_str or "").strip()
         ok, msg, img = self.catgirl.interact(uid, action)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘互动", alias={"猫猫互动"}, desc="猫娘互动 动作名：触发 Pages 中配置的自定义互动")
+    @neko_command("猫娘互动", alias={"猫猫互动"}, desc="触发 Pages 中配置的自定义互动动作。用法：猫娘互动 动作名")
     async def interact_catgirl_custom(self, event: AstrMessageEvent, action: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         action = str(action or "").strip()
         if not action:
             yield event.plain_result("请输入要进行的互动动作。")
@@ -544,20 +711,22 @@ class SapphireEconomyPlugin(Star):
         ok, msg, img = self.catgirl.interact(uid, action)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("猫娘改名", desc="猫娘改名 新名字：消耗改名卡修改猫娘名字")
+    @neko_command("猫娘改名", desc="消耗 1 张改名卡修改猫娘名字。用法：猫娘改名 新名字")
     async def rename_catgirl(self, event: AstrMessageEvent, name: GreedyStr):
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         ok, msg, img = self.catgirl.rename(uid, name)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("更换猫娘形象", alias={"更换猫猫形象"}, desc="更换猫娘形象：上传新图片，优先消耗形象更改卡")
+    @neko_command("更换猫娘形象", alias={"更换猫猫形象"}, desc="更换猫娘图片；可直接带图，或先发指令后 2 分钟内发图。用法：更换猫娘形象")
     async def change_catgirl_image(self, event: AstrMessageEvent):
 
         uid = self._uid(event)
+        self._remember_cat_notify_target(event)
         image_src = self._extract_first_image(event)
 
         if not self.catgirl.has_catgirl(uid):
-            yield event.plain_result("你还没有猫娘喔～发送「请赐我一只可爱猫娘吧」试试看。")
+            yield event.plain_result(self.catgirl.missing_cat_message(uid))
             return
 
         if not image_src:
@@ -591,7 +760,7 @@ class SapphireEconomyPlugin(Star):
         yield self._mixed_result(event, msg, img)
 
 
-    @neko_command("羁绊排行榜", alias={"猫娘排行榜", "猫猫排行榜"}, desc="查看当前群猫娘羁绊排行榜")
+    @neko_command("羁绊排行榜", alias={"猫娘排行榜", "猫猫排行榜"}, desc="查看当前群的猫娘羁绊排行榜。用法：羁绊排行榜")
     async def catgirl_rank(self, event: AstrMessageEvent):
         gid = self._gid(event)
         img = self.catgirl.draw_rank(gid)
@@ -600,14 +769,15 @@ class SapphireEconomyPlugin(Star):
             return
         yield event.image_result(str(img))
 
-    @neko_command("迁移猫娘到本群", alias={"猫娘迁移"}, desc="把自己的猫娘登记到当前群排行榜")
+    @neko_command("迁移猫娘到本群", alias={"猫娘迁移"}, desc="把自己的猫娘登记到当前群，用于参与本群羁绊排行榜。用法：迁移猫娘到本群")
     async def migrate_catgirl_to_group(self, event: AstrMessageEvent):
         uid = self._uid(event)
         gid = self._gid(event)
         ok, msg, img = self.catgirl.migrate_to_group(gid, uid)
+        self._remember_cat_notify_target(event)
         yield self._mixed_result(event, msg, img)
 
-    @neko_command("钱包排行榜", desc="查看宝石余额排行榜")
+    @neko_command("钱包排行榜", desc="查看全局宝石余额排行榜 TOP 10。用法：钱包排行榜")
     async def wallet_rank(self, event: AstrMessageEvent):
         rows = self.economy.wallet_rank(10)
         if not rows:
@@ -619,7 +789,7 @@ class SapphireEconomyPlugin(Star):
             lines.append(f"{i}. {row['uid']}: {row['balance']} {coin_name}")
         yield event.plain_result("\n".join(lines))
 
-    @neko_command("管理员给", desc="管理员给 数量 @用户：给指定用户增加宝石")
+    @neko_command("管理员给", desc="管理员指令，给指定用户增加宝石，需要 @ 对方。用法：管理员给 数量 @用户")
     async def admin_give(self, event: AstrMessageEvent, amount: int):
         if not self._is_admin(event):
             return
@@ -633,7 +803,7 @@ class SapphireEconomyPlugin(Star):
         self.economy.add_balance(target, amount)
         yield event.plain_result(f"已给 {target} 添加 {amount} {self._coin_name()}。")
 
-    @neko_command("管理员扣", desc="管理员扣 数量 @用户：扣除指定用户宝石")
+    @neko_command("管理员扣", desc="管理员指令，扣除指定用户宝石，需要 @ 对方。用法：管理员扣 数量 @用户")
     async def admin_deduct(self, event: AstrMessageEvent, amount: int):
         if not self._is_admin(event):
             return
@@ -647,7 +817,7 @@ class SapphireEconomyPlugin(Star):
         self.economy.add_balance(target, -amount)
         yield event.plain_result(f"已从 {target} 扣除 {amount} {self._coin_name()}。")
 
-    @neko_command("管理员查看", desc="管理员查看 @用户：查看指定用户宝石余额")
+    @neko_command("管理员查看", desc="管理员指令，查看指定用户宝石余额，需要 @ 对方。用法：管理员查看 @用户")
     async def admin_check(self, event: AstrMessageEvent):
         if not self._is_admin(event):
             return
@@ -657,3 +827,23 @@ class SapphireEconomyPlugin(Star):
             return
         bal = self.economy.get_balance(target)
         yield event.plain_result(f"用户 {target} 当前余额：{bal} {self._coin_name()}")
+
+    @neko_command("管理员清理缓存", desc="管理员指令，按配置清理插件生成的缓存图片并返回释放空间。用法：管理员清理缓存")
+    async def admin_cleanup_cache(self, event: AstrMessageEvent):
+        if not self._is_admin(event):
+            return
+        deleted_count, deleted_bytes, remaining_bytes = await self._cleanup_cache_files()
+        yield event.plain_result(
+            "缓存清理完成。\n"
+            f"删除图片：{deleted_count} 个\n"
+            f"释放空间：{deleted_bytes / 1024 / 1024:.2f} MB\n"
+            f"剩余缓存：{remaining_bytes / 1024 / 1024:.2f} MB"
+        )
+
+    async def terminate(self):
+        for task in list(self._background_tasks):
+            if not task.done():
+                task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
