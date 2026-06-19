@@ -490,21 +490,13 @@ class CatgirlService:
         return msg
 
     def draw_wish_card(self, cat: Dict, title: str = "许愿成功", footer: str = "发送「带她回家」确认，或发送「换一只猫娘」看看另一种相遇。") -> Path:
-        return self.draw_care_card(
+        return self.draw_showcase_card(
             title,
             cat,
             subtitle=f"{cat.get('personality', '温柔')}｜{cat.get('body_type', '匀称')}",
             lines=[
                 f"一位{cat.get('personality', '温柔')}的猫娘听见了你的愿望，悄悄来到了你身边。",
                 "她正在等你给出回应。",
-            ],
-            metrics=[
-                ("名字", cat.get("name", "猫娘")),
-                ("阶段", stage_name(cat.get("stage", 0))),
-                ("饱食度", self._fmt_int(cat.get("satiety", 0))),
-                ("心情", self._fmt_int(cat.get("mood", 0))),
-                ("健康", self._fmt_int(cat.get("health", 0))),
-                ("精力", self._fmt_int(cat.get("energy", 0))),
             ],
             footer=footer,
             tag=f"wish_{cat.get('user', 'user')}",
@@ -549,16 +541,12 @@ class CatgirlService:
             return True, f"收养完成啦～\n猫娘「{selected.get('name', '猫娘')}」轻轻牵住了你的手。\n从今天开始，你们的羁绊会在每一次陪伴里慢慢成长 ฅ^•ﻌ•^ฅ{self._starter_card_notice(granted)}", selected
 
         ok, msg, selected = self.store.update(op)
-        card = self.draw_care_card(
+        card = self.draw_showcase_card(
             "收养完成" if ok else "收养未完成",
             selected,
+            subtitle=f"{selected.get('personality', '温柔')}｜{selected.get('body_type', '匀称')}" if selected else "",
             lines=[msg],
-            metrics=[
-                ("名字", selected.get("name", "猫娘") if selected else "-"),
-                ("阶段", stage_name(selected.get("stage", 0)) if selected else "-"),
-                ("亲密等级", self._intimacy_display(selected) if selected else "Lv.1"),
-                ("成长进度", self._growth_display(selected) if selected else "0%"),
-            ],
+            footer="新的羁绊已经开始。发送「猫娘状态」查看完整档案。",
             tag=f"adopt_{uid}",
         ) if selected else None
         return ok, msg, card
@@ -950,6 +938,15 @@ class CatgirlService:
 
     def _metric_progress(self, label: str, value: str, cat: Optional[Dict]):
         raw = str(value or "")
+        ratio = re.search(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)", raw)
+        if ratio:
+            try:
+                current = float(ratio.group(1))
+                total = float(ratio.group(2))
+                if total > 0:
+                    return clamp(current / total * 100, 0, 100) / 100
+            except Exception:
+                pass
         try:
             first_num = re.search(r"[-+]?\d+(?:\.\d+)?", raw)
             number = float(first_num.group(0)) if first_num else 0.0
@@ -995,6 +992,7 @@ class CatgirlService:
         bg.putalpha(135)
         bg_mask = self._rounded_mask((x2 - x1, y2 - y1), radius)
         canvas.paste(bg, (x1, y1), bg_mask)
+        d.rounded_rectangle((x1, y1, x2, y2), radius=radius, outline=(*self._lerp_color(colors[1], (70, 70, 70), 0.25), 115), width=2)
         progress = max(0.04, min(1.0, float(progress or 0)))
         fill_w = max(radius * 2, int((x2 - x1) * progress))
         grad = self._make_linear_gradient((fill_w, y2 - y1), [(0, colors[0]), (0.62, colors[1]), (1, self._lerp_color(colors[1], (255, 255, 255), 0.32))]).convert("RGBA")
@@ -1051,6 +1049,104 @@ class CatgirlService:
         y = (h - img.height) // 2
         frame.paste(img, (x, y))
         return frame
+
+    def draw_showcase_card(
+        self,
+        title: str,
+        cat: Optional[Dict] = None,
+        subtitle: str = "",
+        lines=None,
+        footer: str = "",
+        tag: str = "showcase",
+    ) -> Path:
+        lines = [str(x) for x in (lines or []) if str(x).strip()]
+        width = 780
+        padding = 20
+        header_h = 105
+        image_w, image_h = 700, 820
+        title_font = self._font(48)
+        sub_font = self._font(25)
+        name_font = self._font(39)
+        text_font = self._font(30)
+        small_font = self._font(26)
+        line_h = 45
+        footer_line_h = 36
+        paragraph_gap = 12
+        image_text_gap = 52
+        card_w = width - padding * 2
+        inner_x = padding + 20
+        inner_w = card_w - 40
+
+        measure = ImageDraw.Draw(Image.new("RGB", (width, 1), "white"))
+        text_lines = []
+        if cat:
+            text_lines.append(f"{cat.get('name', '猫娘')}｜{stage_name(cat.get('stage', 0))}｜{status_tag(cat)}")
+        text_lines.extend(lines)
+        wrapped = []
+        for idx, line in enumerate(text_lines):
+            font = name_font if idx == 0 and cat else text_font
+            wrapped.extend((idx, part) for part in self._wrap_by_width(measure, line, font, inner_w, 20))
+        footer_lines = self._wrap_by_width(measure, footer, small_font, inner_w, 2) if footer else []
+        paragraph_count = len({idx for idx, _ in wrapped})
+        text_h = len(wrapped) * line_h + max(0, paragraph_count - 1) * paragraph_gap + 44
+        footer_h = len(footer_lines) * footer_line_h + 60 if footer_lines else 0
+        content_h = 32 + image_h + image_text_gap + text_h + footer_h
+        height = padding + header_h + content_h + padding
+
+        canvas = self._make_card_background((width, height)).convert("RGBA")
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        orange = (255, 139, 24)
+        dark = (18, 22, 26)
+        muted = (74, 82, 88)
+        draw.text((width // 2, padding + 6), title, font=title_font, fill=orange, anchor="ma")
+        if subtitle:
+            draw.text((width // 2, padding + 64), subtitle, font=sub_font, fill=(20, 24, 28, 245), anchor="ma")
+
+        card_x, card_y = padding, padding + header_h
+        self._draw_gradient_panel(
+            canvas,
+            (card_x, card_y, card_x + card_w, card_y + content_h),
+            radius=24,
+            alpha=77,
+            outline=(255, 255, 255, 210),
+            width=3,
+        )
+
+        img_x = inner_x
+        img_y = card_y + 32
+        img_source = self.image_path(cat) if cat else None
+        if img_source and Path(img_source).exists():
+            try:
+                img = Image.open(img_source).convert("RGB")
+                img = self._contain_in_frame(img, image_w, image_h, fill=(255, 250, 246))
+                self._paste_round(canvas, img, (img_x, img_y, image_w, image_h), 20)
+            except Exception:
+                self._draw_no_image(draw, img_x, img_y, image_w, image_h)
+        else:
+            self._draw_no_image(draw, img_x, img_y, image_w, image_h)
+
+        y = img_y + image_h + image_text_gap
+        colors = [(255, 139, 24, 245), (214, 82, 152, 240), (55, 153, 211, 240), (74, 185, 118, 240)]
+        prev_idx = None
+        for idx, text in wrapped:
+            if prev_idx is not None and idx != prev_idx:
+                y += paragraph_gap
+            font = name_font if idx == 0 and cat else text_font
+            draw.text((inner_x, y), text, font=font, fill=colors[idx % len(colors)])
+            y += line_h
+            prev_idx = idx
+
+        if footer_lines:
+            fy = card_y + content_h - 42 - (len(footer_lines) - 1) * footer_line_h
+            for footer_line in footer_lines:
+                draw.text((card_x + card_w // 2, fy), footer_line, font=small_font, fill=muted, anchor="ma")
+                fy += footer_line_h
+
+        safe_tag = re.sub(r"[^a-zA-Z0-9_-]", "_", str(tag or "showcase"))[:40] or "showcase"
+        out = self.cache_dir / f"showcase_card_{safe_tag}_{int(time.time() * 1000)}.png"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        canvas.convert("RGB").save(out, "PNG")
+        return out
 
     def draw_care_card(
         self,
@@ -1175,11 +1271,10 @@ class CatgirlService:
                 draw.text((text_x + 4, y), self._truncate_text(draw, label, metric_font, 112), font=metric_font, fill=dark)
                 draw.text((text_x + text_w - 4, y + 1), self._truncate_text(draw, value, value_font, 112), font=value_font, fill=colors[1], anchor="ra")
                 bar_y = y + 35
-                bar_w = max(96, int(text_w * 0.5))
-                bar_x2 = text_x + text_w - 4
+                bar_margin = 4
                 self._draw_gradient_bar(
                     canvas,
-                    (bar_x2 - bar_w, bar_y, bar_x2, bar_y + 24),
+                    (text_x + bar_margin, bar_y, text_x + text_w - bar_margin, bar_y + 24),
                     colors,
                     progress,
                 )
